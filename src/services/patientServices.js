@@ -26,6 +26,7 @@ let postBookAppointmentServices = async (data) => {
         });
       } else {
         let token = uuidv4();
+        const prefix = token.split("-")[0];
         await emailService.sendSimpleEmail({
           reciverEmail: data.email,
           patientName: data.fullName,
@@ -72,6 +73,7 @@ let postBookAppointmentServices = async (data) => {
             timeType: data.timeType,
           },
           defaults: {
+            id: prefix,
             statusId: "S1",
             doctorId: data.doctorId,
             patientId: user.id,

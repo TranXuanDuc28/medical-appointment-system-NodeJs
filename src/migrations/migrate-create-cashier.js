@@ -1,28 +1,26 @@
 "use strict";
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    await queryInterface.createTable("bookings", {
+    await queryInterface.createTable("cashiers", {
       id: {
         allowNull: false,
+        autoIncrement: true,
         primaryKey: true,
-        type: Sequelize.STRING,
-      },
-      statusId: {
-        type: Sequelize.STRING,
-      },
-      doctorId: {
         type: Sequelize.INTEGER,
       },
-      patientId: {
+      bookingId: {
+        type: Sequelize.STRING,
+      },
+      cashier: {
         type: Sequelize.INTEGER,
       },
       date: {
         type: Sequelize.STRING,
       },
-      timeType: {
+      totalPrire: {
         type: Sequelize.STRING,
       },
-      token: {
+      description: {
         type: Sequelize.STRING,
       },
       createdAt: {

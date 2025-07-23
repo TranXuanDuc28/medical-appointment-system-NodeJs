@@ -6,6 +6,25 @@ import doctorController from "../controllers/doctorControllers";
 import patientController from "../controllers/patientController";
 import specialtyController from "../controllers/specialtyController";
 import clinicController from "../controllers/clinicController";
+import medicineController from "../controllers/medicineController";
+import chatController from "../controllers/chatController";
+const multer = require('multer');
+const path = require('path');
+const slugify = require('slugify');
+
+// Cấu hình lưu file upload
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, path.join(__dirname, '../public/uploads'));
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    // Loại bỏ ký tự đặc biệt khỏi tên file khi lưu
+    const safeName = slugify(file.originalname, { lower: false, strict: true, locale: 'vi' });
+    cb(null, uniqueSuffix + '-' + safeName);
+  }
+});
+const upload = multer({ storage: storage });
 
 // khoi tao router
 let router = express.Router();
@@ -79,9 +98,42 @@ let initWebRoutes = (app) => {
     doctorController.getListPatientForDoctor
   );
   router.post("/api/send-remedy", doctorController.sendRemedy);
+  router.post(
+    "/api/update-medical-appointment-status",
+    doctorController.postMedicalAppointmentStatus
+  );
   // Add the Casso payment transaction API endpoint
-  
+
   router.get("/api/check-paid", doctorController.getListGDPR);
+  // Medicine routes
+  router.get("/api/get-medicines", medicineController.getAllMedicine);
+
+  // Casso webhook: cập nhật trạng thái booking khi nhận được giao dịch thanh toán
+  router.post("/api/casso/webhook", doctorController.postConfirmPayment);
+  router.post("/api/send-payment", doctorController.sendPayment);
+  // router.post("/api/save-msg", chatController.saveMsg);
+  router.get("/api/get-msg/:receiverId", chatController.getMsg);
+  router.post("/api/del-msg/:id", chatController.delMsg);
+
+  // API upload file
+  router.post('/api/upload-file', upload.single('file'), (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ errCode: 1, errMessage: 'No file uploaded' });
+    }
+    const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+    // Chuyển encoding tên file về UTF-8
+    const originalName = Buffer.from(req.file.originalname, 'latin1').toString('utf8');
+    res.status(200).json({
+      errCode: 0,
+      file_url: fileUrl,
+      file_type: req.file.mimetype,
+      file_name: originalName // dùng tên đã chuyển encoding
+    });
+  });
+
+  router.post("/api/login-patient-chat", userController.handlePatientChatLogin);
+
+
   return app.use("/", router);
 };
 

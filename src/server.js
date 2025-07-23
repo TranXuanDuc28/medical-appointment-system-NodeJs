@@ -3,7 +3,9 @@ import bodyParser from "body-parser";
 import viewEngine from "./config/viewEngine";
 import initWebRoutes from './route/web';
 import connectDB from "./config/connectDB";
-// import cors from 'cors';
+import http from "http";
+import socketInit from "./socket/index";
+import path from 'path';
 require('dotenv').config();
 
 let app = express();
@@ -34,9 +36,15 @@ app.use(bodyParser.urlencoded({limit: '50mb', extended: true}))
 viewEngine(app);
 initWebRoutes(app);
 
+// Serve static cho thư mục uploads
+app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
+
 connectDB();
 
+const server = http.createServer(app);
+socketInit(server);
+
 let port = process.env.PORT || 6969;
-app.listen(port, () => {
+server.listen(port, () => {
     console.log("Backend Nodejs dang chay voi cong port: "+port)
 });

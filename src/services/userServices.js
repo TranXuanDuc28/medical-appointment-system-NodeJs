@@ -18,6 +18,7 @@ let handleUserLogin = (email, password) => {
             "firstName",
             "lastName",
             "password",
+            "image"
           ],
           where: { email: email },
           include: [
@@ -37,6 +38,10 @@ let handleUserLogin = (email, password) => {
             userData.errCode = 0;
             userData.errMessage = "Ok!";
             delete users.password;
+            // Nếu users là object (findOne), chuyển image sang binary string
+            if (users.image) {
+              users.image = new Buffer(users.image, "base64").toString("binary");
+            }
             userData.users = users;
           } else {
             userData.errCode = 3;
@@ -50,6 +55,54 @@ let handleUserLogin = (email, password) => {
         userData.errCode = 1;
         userData.errMessage =
           "Email cua ban chua ton tai! Vui long thu cach khac!";
+      }
+      resolve(userData);
+    } catch (error) {
+      reject(error);
+    }
+  });
+};
+let handlePatientChatLogin = (email, password) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      let userData = {};
+      let isExits = await checkUserEmail(email);
+      if (isExits) {
+        let users = await db.User.findOne({
+          attributes: [
+            "id",
+            "email",
+            "roleId",
+            "firstName",
+            "lastName",
+            "password",
+          ],
+          where: { email: email },
+          raw: true,
+        });
+        if (users) {
+          let check = bcrypt.compareSync(password, users.password);
+          if (check) {
+            if (users.roleId !== 'R3') {
+              userData.errCode = 4;
+              userData.errMessage = "Chỉ tài khoản bệnh nhân mới được đăng nhập chat!";
+            } else {
+              userData.errCode = 0;
+              userData.errMessage = "Ok!";
+              delete users.password;
+              userData.users = users;
+            }
+          } else {
+            userData.errCode = 3;
+            userData.errMessage = "Sai mật khẩu!";
+          }
+        } else {
+          userData.errCode = 2;
+          userData.errMessage = "Không tìm thấy người dùng!";
+        }
+      } else {
+        userData.errCode = 1;
+        userData.errMessage = "Email chưa tồn tại!";
       }
       resolve(userData);
     } catch (error) {
@@ -224,6 +277,7 @@ let getAllCodeServices = (typeInput) => {
 };
 module.exports = {
   handleUserLogin: handleUserLogin,
+  handlePatientChatLogin: handlePatientChatLogin,
   getAllUsers: getAllUsers,
   createNewUsers: createNewUsers,
   deleteUsers: deleteUsers,

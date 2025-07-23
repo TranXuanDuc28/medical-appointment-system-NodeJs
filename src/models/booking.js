@@ -19,6 +19,10 @@ module.exports = (sequelize, DataTypes) => {
         targetKey: "keyMap",
         as: "timeTypeDataPatient",
       });
+      Booking.hasOne(models.Cashier, {
+        foreignKey: "bookingId",
+        as: "bookingData",
+      });
     }
   }
   Booking.init(

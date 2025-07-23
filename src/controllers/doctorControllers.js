@@ -102,6 +102,7 @@ let getListPatientForDoctor = async (req, res) => {
   try {
     let message = await doctorServices.getListPatientForDoctor(
       req.query.doctorId,
+      req.query.roleId,
       req.query.date
     );
     return res.status(200).json(message);
@@ -134,6 +135,40 @@ let getListGDPR = async (req, res) => {
     });
   }
 };
+let postConfirmPayment = async (req, res) => {
+  try {
+    let message = await doctorServices.postConfirmPayment(req.body);
+    return res.status(200).json(message);
+  } catch (error) {
+    return res.status(200).json({
+      errCode: -1,
+      errMessage: "Lỗi từ server!",
+    });
+  }
+};
+let postMedicalAppointmentStatus = async (req, res) => {
+  try {
+    let message = await doctorServices.postMedicalAppointmentStatus(req.body);
+    return res.status(200).json(message);
+  } catch (error) {
+    return res.status(200).json({
+      errCode: -1,
+      errMessage: "Lỗi từ server!",
+    });
+  }
+};
+let sendPayment = async (req, res) => {
+  try {
+    let message = await doctorServices.sendPayment(req.body);
+    return res.status(200).json(message);
+  } catch (error) {
+    return res.status(200).json({
+      errCode: -1,
+      errMessage: "Lỗi từ server!",
+    });
+  }
+};
+
 module.exports = {
   getTopDoctorHome: getTopDoctorHome,
   getAllDoctor: getAllDoctor,
@@ -146,4 +181,7 @@ module.exports = {
   getListPatientForDoctor: getListPatientForDoctor,
   sendRemedy: sendRemedy,
   getListGDPR: getListGDPR,
+  postConfirmPayment: postConfirmPayment,
+  postMedicalAppointmentStatus: postMedicalAppointmentStatus,
+  sendPayment: sendPayment,
 };

@@ -15,6 +15,22 @@ let handleLogin = async (req, res) => {
     users: userData.users ? userData.users : {},
   });
 };
+let handlePatientChatLogin = async (req, res) => {
+  let email = req.body.email;
+  let password = req.body.password;
+  if (!email || !password) {
+    return res.status(500).json({
+      errCode: 1,
+      errMessage: "Chua co tham so dau vao!",
+    });
+  }
+  let userData = await userServices.handlePatientChatLogin(email, password);
+  return res.status(200).json({
+    errCode: userData.errCode,
+    errMessage: userData.errMessage,
+    users: userData.users ? userData.users : {},
+  });
+}; 
 let handleGetAllUsers = async (req, res) => {
   let id = req.query.id;
   if (!id) {
@@ -81,4 +97,6 @@ module.exports = {
   handleDeleteUsers: handleDeleteUsers,
   handleEditUsers: handleEditUsers,
   getAllCode: getAllCode,
+  handlePatientChatLogin: handlePatientChatLogin
+
 };

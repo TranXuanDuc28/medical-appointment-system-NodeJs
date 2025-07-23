@@ -70,7 +70,9 @@ let getBodyHTMLEmailRemedy = (dataSend) => {
   let ACCOUNT_NO = "0367462316";
   let TEMPLATE = "compact2";
   let AMOUNT = dataSend.amount ? dataSend.amount : "5000"; // Default amount if not provided
-  let DESCRIPTION = encodeURIComponent("Booking care - Thanh toán dịch vụ");
+  let DESCRIPTION = dataSend.bookingId
+    ? encodeURIComponent(`BOOKING${dataSend.bookingId}`)
+    : encodeURIComponent("BOOKING280403");
   let ACCOUNT_NAME = encodeURIComponent("Thanh toán dịch vụ");
 
   const qrImage = `
@@ -137,7 +139,11 @@ let sendAttachment = async (dataSend) => {
         html: getBodyHTMLEmailRemedy(dataSend),
         attachments: [
           {
-            filename: `remedy-${dataSend.email}-${new Date().getTime()}.png`,
+            filename:
+              dataSend.imgBase64 &&
+              dataSend.imgBase64.startsWith("data:application/pdf")
+                ? `don-thuoc.pdf`
+                : ``,
             content: dataSend.imgBase64
               ? dataSend.imgBase64.split("base64,")[1]
               : "",
@@ -157,7 +163,51 @@ let sendAttachment = async (dataSend) => {
   });
 };
 
+let sendEmailPaymentSuccess = async (dataSend) => {
+  let transporter = nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false, // Use `true` for port 465, `false` for all other ports
+    auth: {
+      user: process.env.EMAIL_APP,
+      pass: process.env.EMAIL_APP_PASSWORD,
+    },
+    tls: {
+      rejectUnauthorized: false, // Allow self-signed certificates
+    },
+  });
+  // console.log("transporter", transporter);
+  try {
+    let info = await transporter.sendMail({
+      from: '"Trần Xuân Đức" <ductranxuan28@gmail.com>', // sender address
+      to: dataSend.reciverEmail, // list of receivers
+      subject: "Thông tin giao dịch!", // Subject line
+      html: getBodyHTMLEmailPayment(dataSend),
+    });
+    // console.log("✅ Gửi thành công", info);
+  } catch (error) {
+    console.error("❌ Gửi thất bại", error);
+  }
+};
+let getBodyHTMLEmailPayment = (dataSend) => {
+  let result = "";
+  if (dataSend.language === "vi") {
+    result = `
+    <h3>Xin chào ${dataSend.patientName}!</h3>
+    <p>Bạn đã thanh toán thành công về chí phí tại Booking care</p>
+    <p>Thông tin thanh toán</p>
+    <div><b>Thời gian:${dataSend.time}</b>
+    </div>
+     <div><b>Tổng chi phí đã thanh toán:${dataSend.amount}</b>
+    </div>
+    <div> Xin chân thành cảm ơn!</div>
+    `;
+  }
+  return result;
+};
+
 module.exports = {
   sendSimpleEmail: sendSimpleEmail,
   sendAttachment: sendAttachment,
+  sendEmailPaymentSuccess: sendEmailPaymentSuccess,
 };

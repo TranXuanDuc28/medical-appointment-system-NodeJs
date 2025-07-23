@@ -1,28 +1,41 @@
 "use strict";
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    await queryInterface.createTable("bookings", {
+    await queryInterface.createTable("messages", {
       id: {
         allowNull: false,
+        autoIncrement: true,
         primaryKey: true,
-        type: Sequelize.STRING,
-      },
-      statusId: {
-        type: Sequelize.STRING,
-      },
-      doctorId: {
         type: Sequelize.INTEGER,
       },
-      patientId: {
+      msg: {
+        type: Sequelize.STRING,
+      },
+      sender_id: {
         type: Sequelize.INTEGER,
       },
-      date: {
+      sender_name: {
         type: Sequelize.STRING,
       },
-      timeType: {
+      sender_email: {
         type: Sequelize.STRING,
       },
-      token: {
+      receiver_id: {
+        type: Sequelize.INTEGER,
+      },
+      receiver_name: {
+        type: Sequelize.STRING,
+      },
+      receiver_email: {
+        type: Sequelize.STRING,
+      },
+      file_url: {
+        type: Sequelize.STRING,
+      },
+      file_type: {
+        type: Sequelize.STRING,
+      },
+      file_name: {
         type: Sequelize.STRING,
       },
       createdAt: {
@@ -36,6 +49,6 @@ module.exports = {
     });
   },
   down: async (queryInterface, Sequelize) => {
-    await queryInterface.dropTable("bookings");
+    await queryInterface.dropTable("message");
   },
 };
