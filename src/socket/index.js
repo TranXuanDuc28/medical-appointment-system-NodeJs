@@ -43,6 +43,15 @@ const socketInit = (server) => {
     socket.on("DELETE_MSG", (msg) => {
       socket.to(msg.receiver.socketId).emit("DELETED_MSG", msg);
     });
+    socket.on("START_CHAT", ({ patientId, doctorId }) => {
+      // Tìm patient trong onlineUsers và cập nhật lại socketId nếu cần
+      const patient = onlineUsers.find(u => u.id === patientId);
+      if (patient) {
+        patient.socketId = socket.id;
+        // Emit lại USER_ADDED để doctor cập nhật
+        io.emit("USER_ADDED", onlineUsers);
+      }
+    });
     socket.on("disconnect", () => {
       removeUser(socket.id);
       io.emit("USER_ADDED", onlineUsers);
