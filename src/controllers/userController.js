@@ -1,4 +1,29 @@
 import userServices from "../services/userServices";
+let handleRegister = async (req, res) => {
+  let email = req.body.email;
+  let password = req.body.password;
+  let firstName = req.body.firstName;
+  let lastName = req.body.lastName;
+  let phoneNumber = req.body.phoneNumber;
+  if (!email || !password || !firstName || !lastName || !phoneNumber) {
+    return res.status(500).json({
+      errCode: 1,
+      errMessage: "Chua co tham so dau vao!",
+    });
+  }
+  let userData = await userServices.handleUserRegister(
+    email,
+    password,
+    firstName,
+    lastName,
+    phoneNumber
+  );
+  return res.status(200).json({
+    errCode: userData.errCode,
+    errMessage: userData.errMessage,
+    users: userData.users ? userData.users : {},
+  });
+};
 let handleLogin = async (req, res) => {
   let email = req.body.email;
   let password = req.body.password;
@@ -30,7 +55,7 @@ let handlePatientChatLogin = async (req, res) => {
     errMessage: userData.errMessage,
     users: userData.users ? userData.users : {},
   });
-}; 
+};
 let handleGetAllUsers = async (req, res) => {
   let id = req.query.id;
   if (!id) {
@@ -91,12 +116,12 @@ let getAllCode = async (req, res) => {
   }
 };
 module.exports = {
+  handleRegister: handleRegister,
   handleLogin: handleLogin,
   handleGetAllUsers: handleGetAllUsers,
   handleCreateNewUsers: handleCreateNewUsers,
   handleDeleteUsers: handleDeleteUsers,
   handleEditUsers: handleEditUsers,
   getAllCode: getAllCode,
-  handlePatientChatLogin: handlePatientChatLogin
-
+  handlePatientChatLogin: handlePatientChatLogin,
 };

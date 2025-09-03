@@ -4,6 +4,39 @@ import { where } from "sequelize";
 import { raw } from "body-parser";
 import user from "../models/user";
 const salt = bcrypt.genSaltSync(10);
+let handleUserRegister = (
+  email,
+  password,
+  firstName,
+  lastName,
+  phoneNumber
+) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      let userData = {};
+      let isExits = await checkUserEmail(email);
+      if (isExits) {
+        userData.errCode = 1;
+        userData.errMessage = "Email này đã được đăng ký!";
+      } else {
+        let hashPasswordFromBcrypt = await hashUserPassword(password);
+        await db.User.create({
+          email: email,
+          firstName: firstName,
+          lastName: lastName,
+          password: hashPasswordFromBcrypt,
+          phoneNumber: phoneNumber,
+          roleId: "R3",
+        });
+        userData.errCode = 0;
+        userData.errMessage = "Đăng ký thành công!";
+      }
+      resolve(userData);
+    } catch (error) {
+      reject(error);
+    }
+  });
+};
 let handleUserLogin = (email, password) => {
   return new Promise(async (resolve, reject) => {
     try {
@@ -18,13 +51,18 @@ let handleUserLogin = (email, password) => {
             "firstName",
             "lastName",
             "password",
-            "image"
+            "image",
           ],
           where: { email: email },
           include: [
             {
               model: db.AllCode,
               as: "roleData",
+              attributes: ["valueEn", "valueVi"],
+            },
+            {
+              model: db.AllCode,
+              as: "positionData",
               attributes: ["valueEn", "valueVi"],
             },
           ],
@@ -38,23 +76,25 @@ let handleUserLogin = (email, password) => {
             userData.errCode = 0;
             userData.errMessage = "Ok!";
             delete users.password;
-            // Nếu users là object (findOne), chuyển image sang binary string
+            //Nếu users là object (findOne), chuyển image sang binary string
             if (users.image) {
-              users.image = new Buffer(users.image, "base64").toString("binary");
+              users.image = new Buffer(users.image, "base64").toString(
+                "binary"
+              );
             }
             userData.users = users;
           } else {
             userData.errCode = 3;
-            userData.errMessage = "Sai mat khau!";
+            userData.errMessage = "Sai mật khẩu!";
           }
         } else {
           userData.errCode = 2;
-          userData.errMessage = "Khong tim thay nguoi dung!";
+          userData.errMessage = "Không tìm thấy người dùng!";
         }
       } else {
         userData.errCode = 1;
         userData.errMessage =
-          "Email cua ban chua ton tai! Vui long thu cach khac!";
+          "Email của bạn chưa tồn tại! Vui lòng đăng ký tài khoản!";
       }
       resolve(userData);
     } catch (error) {
@@ -83,9 +123,10 @@ let handlePatientChatLogin = (email, password) => {
         if (users) {
           let check = bcrypt.compareSync(password, users.password);
           if (check) {
-            if (users.roleId !== 'R3') {
+            if (users.roleId !== "R3") {
               userData.errCode = 4;
-              userData.errMessage = "Chỉ tài khoản bệnh nhân mới được đăng nhập chat!";
+              userData.errMessage =
+                "Chỉ tài khoản bệnh nhân mới được đăng nhập chat!";
             } else {
               userData.errCode = 0;
               userData.errMessage = "Ok!";
@@ -219,9 +260,10 @@ let deleteUsers = (userId) => {
   });
 };
 let updateUserData = (data) => {
+  console.log(data);
   return new Promise(async (resolve, reject) => {
     try {
-      if (!data.id || !data.roleId || !data.positionId || !data.gender) {
+      if (!data.id || !data.roleId || !data.gender) {
         resolve({
           errCode: 2,
           errMessage: "Khong co tham so truyen vao!",
@@ -247,12 +289,12 @@ let updateUserData = (data) => {
         await users.save();
         resolve({
           errCode: 0,
-          errMessage: "Cap nhap thanh cong!",
+          errMessage: "Cập nhập thành công!",
         });
       } else {
         resolve({
           errCode: 1,
-          errMessage: "Khong tim thay email nguoi dung!",
+          errMessage: "Không tìm thấy email người dùng!",
         });
       }
     } catch (error) {
@@ -276,6 +318,7 @@ let getAllCodeServices = (typeInput) => {
   });
 };
 module.exports = {
+  handleUserRegister: handleUserRegister,
   handleUserLogin: handleUserLogin,
   handlePatientChatLogin: handlePatientChatLogin,
   getAllUsers: getAllUsers,

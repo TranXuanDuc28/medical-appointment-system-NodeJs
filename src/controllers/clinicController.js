@@ -13,7 +13,9 @@ let createClinic = async (req, res) => {
 };
 let getAllClinic = async (req, res) => {
   try {
-    let infor = await clinicService.getAllClinic();
+    let infor = await clinicService.getAllClinic(
+      req.query.lang // Lấy ngôn ngữ từ query parameters
+    );
     return res.status(200).json(infor);
   } catch (e) {
     return res.status(200).json({
@@ -27,7 +29,7 @@ let getDetailClinicById = async (req, res) => {
   try {
     let infor = await clinicService.getDetailClinicById(
       req.query.id,
-      req.query.location
+      req.query.lang
     );
     return res.status(200).json(infor);
   } catch (e) {

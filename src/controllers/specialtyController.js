@@ -13,7 +13,7 @@ let createSpecialty = async (req, res) => {
 };
 let getAllSpecialty = async (req, res) => {
   try {
-    let infor = await specialtyService.getAllSpecialty();
+    let infor = await specialtyService.getAllSpecialty(req.query.lang);
     return res.status(200).json(infor);
   } catch (e) {
     console.log(e);
@@ -28,7 +28,8 @@ let getDetailSpecialtyById = async (req, res) => {
   try {
     let infor = await specialtyService.getDetailSpecialtyById(
       req.query.id,
-      req.query.location
+      req.query.location,
+      req.query.lang
     );
     return res.status(200).json(infor);
   } catch (e) {

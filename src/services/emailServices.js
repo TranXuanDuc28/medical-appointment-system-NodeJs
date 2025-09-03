@@ -17,7 +17,7 @@ let sendSimpleEmail = async (dataSend) => {
   // console.log("transporter", transporter);
   try {
     let info = await transporter.sendMail({
-      from: '"Trần Xuân Đức 👻" <ductranxuan28@gmail.com>', // sender address
+      from: '"Trần Xuân Đức" <ductranxuan28@gmail.com>', // sender address
       to: dataSend.reciverEmail, // list of receivers
       subject: "Thông tin đặt lịch khám bệnh", // Subject line
       html: getBodyHTMLEmail(dataSend),
@@ -35,9 +35,9 @@ let getBodyHTMLEmail = (dataSend) => {
     <h3>Xin chào ${dataSend.patientName}!</h3>
     <p>Bạn nhận được email này vì đã đặt bệnh online trên Booking care</p>
     <p>Thông tin đăt lịch khám bệnh</p>
-    <div><b>Thời gian:${dataSend.time}</b>
+    <div><b>Thời gian: ${dataSend.time}</b>
     </div>
-     <div><b>Bác sĩ:${dataSend.doctorName}</b>
+     <div><b>Bác sĩ: ${dataSend.doctorName}</b>
     </div>
     <p>Nếu các thông tin trên là đúng sự thật vui lòng click vào đường link bên dưới để xác nhận và hoàn tất thủ tục đặt lịch khám bệnh</p>
     <div>
@@ -51,9 +51,9 @@ let getBodyHTMLEmail = (dataSend) => {
         <h3>Dear ${dataSend.patientName}!</h3>
     <p>You received this email because you booked an appointment online on Booking care.</p>
     <p>Information to schedule appointment</p>
-    <div><b>Time:${dataSend.time}</b>
+    <div><b>Time: ${dataSend.time}</b>
     </div>
-     <div><b>Doctor:${dataSend.doctorName}</b>
+     <div><b>Doctor: ${dataSend.doctorName}</b>
     </div>
     <p>If the above information is correct, please click on the link below to confirm and complete the appointment procedure.</p>
     <div>
@@ -77,7 +77,6 @@ let getBodyHTMLEmailRemedy = (dataSend) => {
 
   const qrImage = `
     <div style="margin-top: 20px;">
-      <p>Hoặc quét mã QR để thanh toán:</p>
       <img src="https://img.vietqr.io/image/${BANK_ID}-${ACCOUNT_NO}-${TEMPLATE}.jpg?amount=${AMOUNT}&addInfo=${DESCRIPTION}&accountName=${ACCOUNT_NAME}" 
       alt="QR Code thanh toán" style="width: 200px; height: auto;" />
     </div>
@@ -85,30 +84,24 @@ let getBodyHTMLEmailRemedy = (dataSend) => {
 
   if (dataSend.language === "vi") {
     result = `
-      <h3>Xin chào ${dataSend.patientName}!</h3>
+      <h3>Xin chào ${dataSend.patientInfo.fullName}!</h3>
       <p>Bạn nhận được email này vì đã đặt lịch khám bệnh trên Booking Care.</p>
-      <p><b>Thông tin đơn thuốc:</b></p>
+      <p><b>Thông tin đơn thuốc: (Nhấn vào file đính kèm để xem)</b></p>
       <div><b>Thời gian:</b> ${dataSend.time}</div>
       <div><b>Bác sĩ:</b> ${dataSend.doctorName}</div>
-      <p>Nếu các thông tin trên là chính xác, vui lòng click vào đường link bên dưới để thanh toán:</p>
-      <div>
-        <a href="${dataSend.redirectLink}" target="_blank">Click vào đây để thanh toán</a>
-      </div>
+      <p>Nếu các thông tin trên là chính xác, vui lòng quét mã QR bên dưới để thanh toán:</p>
       ${qrImage}
       <div>Xin chân thành cảm ơn!</div>
     `;
   } else {
     // Trường hợp ngôn ngữ khác (ví dụ English)
     result = `
-      <h3>Dear ${dataSend.patientName}!</h3>
+      <h3>Dear ${dataSend.patientInfo.fullName}!</h3>
       <p>You received this email because you booked a medical appointment on Booking Care.</p>
       <p><b>Prescription Information:</b></p>
       <div><b>Time:</b> ${dataSend.time}</div>
       <div><b>Doctor:</b> ${dataSend.doctorName}</div>
-      <p>If the above information is correct, please click the link below to proceed with payment:</p>
-      <div>
-        <a href="${dataSend.redirectLink}" target="_blank">Click here to pay</a>
-      </div>
+      <p>If the above information is correct, please scan code QR below to proceed with payment:</p>
       ${qrImage}
       <div>Thank you very much!</div>
     `;
@@ -118,6 +111,7 @@ let getBodyHTMLEmailRemedy = (dataSend) => {
 };
 
 let sendAttachment = async (dataSend) => {
+  //console.log("dataSend", dataSend);
   return new Promise(async (resolve, reject) => {
     try {
       let transporter = nodemailer.createTransport({
@@ -134,7 +128,7 @@ let sendAttachment = async (dataSend) => {
       });
       let info = await transporter.sendMail({
         from: '"Trần Xuân Đức" <ductranxuan28@gmail.com>', // sender address
-        to: dataSend.email, // list of receivers
+        to: dataSend.patientInfo.email, // list of receivers
         subject: "Kết quả đặt lịch khám bệnh", // Subject line
         html: getBodyHTMLEmailRemedy(dataSend),
         attachments: [

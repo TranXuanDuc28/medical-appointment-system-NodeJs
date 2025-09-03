@@ -1,9 +1,11 @@
 import doctorServices from "../services/doctorServices";
+const socket = require("../socket/index");
 let getTopDoctorHome = async (req, res) => {
   let limit = req.query.limit;
+  let lang = req.query.lang;
   if (!limit) limit = 10;
   try {
-    let message = await doctorServices.getTopDoctorHomeServices(limit);
+    let message = await doctorServices.getTopDoctorHomeServices(limit, lang);
     return res.status(200).json(message);
   } catch (error) {
     return res.status(200).json({
@@ -37,7 +39,8 @@ let postInforDoctor = async (req, res) => {
 let getDetailDoctorById = async (req, res) => {
   try {
     let message = await doctorServices.getDetailDoctorByIdServices(
-      req.query.id
+      req.query.id,
+      req.query.lang
     );
     return res.status(200).json(message);
   } catch (error) {
@@ -75,7 +78,8 @@ let getScheduleDoctorByDate = async (req, res) => {
 let getExtraDoctorInforById = async (req, res) => {
   try {
     let message = await doctorServices.getExtraDoctorInforByIdServices(
-      req.query.doctorId
+      req.query.doctorId,
+      req.query.lang
     );
     return res.status(200).json(message);
   } catch (error) {
@@ -88,7 +92,8 @@ let getExtraDoctorInforById = async (req, res) => {
 let getProfileDoctorById = async (req, res) => {
   try {
     let message = await doctorServices.getProfileDoctorByIdServices(
-      req.query.doctorId
+      req.query.doctorId,
+      req.query.lang
     );
     return res.status(200).json(message);
   } catch (error) {
@@ -103,7 +108,8 @@ let getListPatientForDoctor = async (req, res) => {
     let message = await doctorServices.getListPatientForDoctor(
       req.query.doctorId,
       req.query.roleId,
-      req.query.date
+      req.query.date,
+      req.query.lang
     );
     return res.status(200).json(message);
   } catch (error) {
@@ -115,7 +121,7 @@ let getListPatientForDoctor = async (req, res) => {
 };
 let sendRemedy = async (req, res) => {
   try {
-    let message = await doctorServices.sendRemedy(req.body);
+    let message = await doctorServices.sendRemedyService(req.body);
     return res.status(200).json(message);
   } catch (error) {
     return res.status(200).json({
@@ -137,7 +143,10 @@ let getListGDPR = async (req, res) => {
 };
 let postConfirmPayment = async (req, res) => {
   try {
-    let message = await doctorServices.postConfirmPayment(req.body);
+    let message = await doctorServices.postConfirmPayment(
+      req.body,
+      req.app.get("socketio")
+    );
     return res.status(200).json(message);
   } catch (error) {
     return res.status(200).json({

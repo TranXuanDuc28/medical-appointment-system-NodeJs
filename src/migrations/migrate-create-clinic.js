@@ -14,16 +14,8 @@ module.exports = {
       name: {
         type: Sequelize.STRING,
       },
-      descriptionHTML: {
-        type: Sequelize.TEXT,
-      },
-      descriptionMarkdown: {
-        type: Sequelize.TEXT,
-      },
+
       address: {
-        type: Sequelize.STRING,
-      },
-      description: {
         type: Sequelize.STRING,
       },
       createdAt: {

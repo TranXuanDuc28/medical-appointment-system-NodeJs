@@ -5,62 +5,38 @@ require("dotenv").config();
 import _, { includes, last } from "lodash";
 import emailServices from "./emailServices";
 import nodeHtmlToImage from "node-html-to-image";
+import moment, { lang } from "moment";
+import { console } from "inspector";
+const { getOnlineUsers } = require("../socket/onlineUsers");
+
+const path = require("path");
+const ejs = require("ejs");
 const MAX_NUMBER_SCHEDULE = process.env.MAX_NUMBER_SCHEDULE;
 const https = require("https");
 const axios = require("axios");
 const fetch = require("node-fetch");
 const puppeteer = require("puppeteer");
-const getPrescriptionPDFBase64 = async ({
-  patientName,
-  doctorName,
-  date,
-  medicines,
-}) => {
+let getPrescriptionPDFBase64 = async (data) => {
   // Tạo HTML template cho đơn thuốc
-  const html = `
-    <html>
-      <head>
-        <meta charset="utf-8">
-        <style>
-          body { font-family: Arial, sans-serif; margin: 40px; }
-          h1 { color: #2d6a4f; text-align: center; }
-          .info { margin-bottom: 20px; }
-          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-          th, td { border: 1px solid #333; padding: 8px; text-align: left; }
-          th { background: #e9ecef; }
-          .footer { margin-top: 40px; text-align: center; color: #555; }
-        </style>
-      </head>
-      <body>
-        <h1>ĐƠN THUỐC</h1>
-        <div class="info">
-          <div>👤 Bệnh nhân: <b>${patientName || ""}</b></div>
-          <div>🩺 Bác sĩ: <b>${doctorName || ""}</b></div>
-          <div>📅 Ngày khám: <b>${date || ""}</b></div>
-        </div>
-        <div>
-          <b>📋 Danh sách thuốc:</b>
-          <table>
-            <tr>
-              <th>STT</th>
-              <th>Tên thuốc</th>
-            </tr>
-            ${(medicines || [])
-              .map(
-                (m, idx) => `
-              <tr>
-                <td>${idx + 1}</td>
-                <td>${m.label}</td>
-              </tr>
-            `
-              )
-              .join("")}
-          </table>
-        </div>
-        <div class="footer">Cảm ơn bạn đã sử dụng dịch vụ!</div>
-      </body>
-    </html>
-  `;
+  // process.stdout.write(JSON.stringify(data, null, 2) + "\n");
+  // process.stdout.write("Oke");
+  const filePath = path.join(__dirname, "../templates/prescription.ejs");
+  // process.stdout.write("File path: " + filePath + "\n");
+  let html;
+  try {
+    html = await ejs.renderFile(
+      path.join(__dirname, "../templates/prescription.ejs"),
+      data
+    );
+    // process.stdout.write("HTML length: " + (html ? html.length : 0) + "\n");
+    // process.stdout.write(
+    //   "HTML preview: " + (html ? html.slice(0, 500) : "") + "\n"
+    // );
+  } catch (err) {
+    process.stdout.write("EJS render error:", err);
+  }
+
+  // process.stdout.write("html" + html + "\n");
 
   // Sử dụng puppeteer để render HTML thành PDF và trả về base64
   const browser = await puppeteer.launch({
@@ -73,7 +49,8 @@ const getPrescriptionPDFBase64 = async ({
   await browser.close();
   return pdfBuffer.toString("base64");
 };
-let getTopDoctorHomeServices = (limitInput) => {
+let getTopDoctorHomeServices = (limitInput, lang) => {
+  console.log("data", limitInput, lang);
   return new Promise(async (resolve, reject) => {
     try {
       let doctors = await db.User.findAll({
@@ -81,7 +58,7 @@ let getTopDoctorHomeServices = (limitInput) => {
         where: { roleId: "R2" },
         order: [["createdAt", "DESC"]],
         attributes: {
-          exclude: ["password", "image"],
+          exclude: ["password"],
         },
         include: [
           {
@@ -94,10 +71,32 @@ let getTopDoctorHomeServices = (limitInput) => {
             as: "genderData",
             attributes: ["valueEn", "valueVi"],
           },
+          {
+            model: db.Doctor_Infor,
+            where: { lang: lang },
+            include: [
+              {
+                model: db.Specialty,
+                as: "doctorSpecialty",
+                include: [
+                  {
+                    model: db.Specialty_Translation,
+                    where: { lang: lang },
+                    as: "specialtyData",
+                  },
+                ],
+              },
+            ],
+          },
         ],
-        raw: true,
-        nest: true,
+        raw: false,
       });
+      if (doctors && doctors.length > 0) {
+        doctors.map((item) => {
+          item.image = new Buffer(item.image, "base64").toString("binary");
+          return item;
+        });
+      }
 
       resolve({
         errCode: 0,
@@ -114,15 +113,29 @@ let getAllDoctorServices = () => {
       let doctors = await db.User.findAll({
         where: { roleId: "R2" },
         attributes: {
-          exclude: ["password","image"],
+          exclude: ["password"],
         },
+        include: [
+          {
+            model: db.AllCode,
+            as: "positionData",
+            attributes: ["valueEn", "valueVi"],
+          },
+          {
+            model: db.AllCode,
+            as: "genderData",
+            attributes: ["valueEn", "valueVi"],
+          },
+        ],
+        raw: true,
+        nest: true,
       });
-      // if (doctors && doctors.length > 0) {
-      //   doctors.map((item) => {
-      //     item.image = new Buffer(item.image, "base64").toString("binary");
-      //     return item;
-      //   });
-      // }
+      if (doctors && doctors.length > 0) {
+        doctors.map((item) => {
+          item.image = new Buffer(item.image, "base64").toString("binary");
+          return item;
+        });
+      }
       resolve({
         errCode: 0,
         data: doctors,
@@ -174,14 +187,16 @@ let saveDetailInforDoctor = (inputData) => {
         //upsert to markdown
         if (inputData.action === "CREATE") {
           await db.Markdown.create({
+            lang: inputData.lang,
             contentHTML: inputData.contentHTML,
             contentMarkdown: inputData.contentMarkdown,
             description: inputData.description,
             doctorId: inputData.doctorId,
           });
         } else if (inputData.action === "UPDATE") {
+          // Update the specific language entry; if not found, create it
           let doctorMarkdown = await db.Markdown.findOne({
-            where: { doctorId: inputData.doctorId },
+            where: { doctorId: inputData.doctorId, lang: inputData.lang },
             raw: false,
           });
           if (doctorMarkdown) {
@@ -189,8 +204,15 @@ let saveDetailInforDoctor = (inputData) => {
             doctorMarkdown.contentMarkdown = inputData.contentMarkdown;
             doctorMarkdown.description = inputData.description;
             doctorMarkdown.updateAt = new Date();
-
             await doctorMarkdown.save();
+          } else {
+            await db.Markdown.create({
+              lang: inputData.lang,
+              contentHTML: inputData.contentHTML,
+              contentMarkdown: inputData.contentMarkdown,
+              description: inputData.description,
+              doctorId: inputData.doctorId,
+            });
           }
         }
 
@@ -198,6 +220,7 @@ let saveDetailInforDoctor = (inputData) => {
         let doctorInfor = await db.Doctor_Infor.findOne({
           where: {
             doctorId: inputData.doctorId,
+            lang: inputData.lang,
           },
           raw: false,
         });
@@ -214,6 +237,7 @@ let saveDetailInforDoctor = (inputData) => {
           doctorInfor.note = inputData.note;
           doctorInfor.specialtyId = inputData.specialtyId;
           doctorInfor.clinicId = inputData.clinicId ? inputData.clinicId : null;
+          doctorInfor.lang = inputData.lang;
 
           await doctorInfor.save();
         } else {
@@ -230,6 +254,7 @@ let saveDetailInforDoctor = (inputData) => {
               note: inputData.note,
               specialtyId: inputData.specialtyId,
               clinicId: inputData.clinicId !== "" ? inputData.clinicId : null,
+              lang: inputData.lang,
             });
           } catch (error) {
             console.error("Error creating doctor info:", error);
@@ -245,7 +270,8 @@ let saveDetailInforDoctor = (inputData) => {
     }
   });
 };
-let getDetailDoctorByIdServices = (inputId) => {
+let getDetailDoctorByIdServices = (inputId, lang) => {
+  // process.stdout.write("InputId: " + inputId + ", lang: " + lang + "\n");
   return new Promise(async (resolve, reject) => {
     try {
       if (!inputId) {
@@ -262,7 +288,14 @@ let getDetailDoctorByIdServices = (inputId) => {
           include: [
             {
               model: db.Markdown,
-              attributes: ["description", "contentHTML", "contentMarkdown"],
+              attributes: [
+                "description",
+                "contentHTML",
+                "contentMarkdown",
+                "lang",
+              ],
+              where: lang ? { lang } : undefined,
+              required: false,
             },
             {
               model: db.AllCode,
@@ -274,6 +307,7 @@ let getDetailDoctorByIdServices = (inputId) => {
               attributes: {
                 exclude: ["id", "doctorId"],
               },
+              where: lang ? { lang } : undefined,
               include: [
                 {
                   model: db.AllCode,
@@ -296,6 +330,8 @@ let getDetailDoctorByIdServices = (inputId) => {
           raw: false,
           nest: true,
         });
+        // process.stdout.write("Doctor data: " + JSON.stringify(doctors) + "\n");
+
         if (doctors && doctors.image) {
           doctors.image = new Buffer(doctors.image, "base64").toString(
             "binary"
@@ -329,17 +365,19 @@ let bulkCreateScheduleServices = (data) => {
             return item;
           });
         }
-        // console.log("schedule", schedule)
         let existing = await db.Schedule.findAll({
           where: { doctorId: data.doctorId, date: data.formatedDate },
           attributes: ["doctorId", "maxNumber", "timeType", "date"],
           raw: true,
         });
-        // console.log("existing", existing)
         let toCreate = _.differenceWith(schedule, existing, (a, b) => {
           return a.timeType === b.timeType && +a.date === +b.date;
         });
         if (toCreate && toCreate.length > 0) {
+          toCreate = toCreate.map((item) => ({
+            ...item,
+            status: "available", //gán cho từng schedule
+          }));
           await db.Schedule.bulkCreate(toCreate);
         }
 
@@ -353,7 +391,7 @@ let bulkCreateScheduleServices = (data) => {
     }
   });
 };
-let getScheduleDoctorByDateServices = (doctorId, date) => {
+let getScheduleDoctorByDateServices = ({ doctorId, date }) => {
   return new Promise(async (resolve, reject) => {
     try {
       if (!doctorId || !date) {
@@ -381,7 +419,7 @@ let getScheduleDoctorByDateServices = (doctorId, date) => {
           ],
           raw: false,
         });
-        console.log(dataSchedule);
+        // console.log("dataSchedule", dataSchedule);
         resolve({
           errCode: 0,
           data: dataSchedule,
@@ -392,7 +430,7 @@ let getScheduleDoctorByDateServices = (doctorId, date) => {
     }
   });
 };
-let getExtraDoctorInforByIdServices = (inputId) => {
+let getExtraDoctorInforByIdServices = (inputId, lang) => {
   return new Promise(async (resolve, reject) => {
     try {
       if (!inputId) {
@@ -402,7 +440,7 @@ let getExtraDoctorInforByIdServices = (inputId) => {
         });
       } else {
         let data = await db.Doctor_Infor.findOne({
-          where: { doctorId: inputId },
+          where: { doctorId: inputId, lang: lang },
           attributes: {
             exclude: ["id", "doctorId"],
           },
@@ -426,6 +464,7 @@ let getExtraDoctorInforByIdServices = (inputId) => {
           raw: false,
           nest: true,
         });
+        process.stdout.write("check data extra", data);
 
         if (!data) data = {};
         resolve({
@@ -438,7 +477,7 @@ let getExtraDoctorInforByIdServices = (inputId) => {
     }
   });
 };
-let getProfileDoctorByIdServices = (inputId) => {
+let getProfileDoctorByIdServices = (inputId, lang) => {
   return new Promise(async (resolve, reject) => {
     try {
       if (!inputId) {
@@ -455,7 +494,15 @@ let getProfileDoctorByIdServices = (inputId) => {
           include: [
             {
               model: db.Markdown,
-              attributes: ["description", "contentHTML", "contentMarkdown"],
+              where: lang ? { lang } : undefined,
+              attributes: [
+                "description",
+                "contentHTML",
+                "contentMarkdown",
+                "lang",
+              ],
+
+              required: false,
             },
             {
               model: db.AllCode,
@@ -464,9 +511,11 @@ let getProfileDoctorByIdServices = (inputId) => {
             },
             {
               model: db.Doctor_Infor,
+              where: lang ? { lang } : undefined,
               attributes: {
                 exclude: ["id", "doctorId"],
               },
+
               include: [
                 {
                   model: db.AllCode,
@@ -505,10 +554,10 @@ let getProfileDoctorByIdServices = (inputId) => {
     }
   });
 };
-let getListPatientForDoctor = (doctorId, roleId, date) => {
+let getListPatientForDoctor = (doctorId, roleId, date, lang) => {
   return new Promise(async (resolve, reject) => {
     try {
-      if (!doctorId || !roleId || !date) {
+      if (!doctorId || !roleId || !date || !lang) {
         resolve({
           errCode: 1,
           errMessage: "Missing required parameters",
@@ -526,7 +575,14 @@ let getListPatientForDoctor = (doctorId, roleId, date) => {
               {
                 model: db.User,
                 as: "patientData",
-                attributes: ["firstName", "email", "address", "gender"],
+                attributes: [
+                  "firstName",
+                  "lastName",
+                  "email",
+                  "phoneNumber",
+                  "address",
+                  "gender",
+                ],
                 include: [
                   {
                     model: db.AllCode,
@@ -539,6 +595,18 @@ let getListPatientForDoctor = (doctorId, roleId, date) => {
                 model: db.AllCode,
                 as: "timeTypeDataPatient",
                 attributes: ["valueEn", "valueVi"],
+              },
+              {
+                model: db.Doctor_Infor,
+                where: { lang: lang },
+                as: "doctorInforData",
+                include: [
+                  {
+                    model: db.User,
+                    as: "doctorData",
+                    attributes: ["firstName", "lastName"],
+                  },
+                ],
               },
             ],
             raw: false,
@@ -557,7 +625,14 @@ let getListPatientForDoctor = (doctorId, roleId, date) => {
               {
                 model: db.User,
                 as: "patientData",
-                attributes: ["firstName", "email", "address", "gender"],
+                attributes: [
+                  "firstName",
+                  "lastName",
+                  "email",
+                  "phoneNumber",
+                  "address",
+                  "gender",
+                ],
                 include: [
                   {
                     model: db.AllCode,
@@ -571,7 +646,20 @@ let getListPatientForDoctor = (doctorId, roleId, date) => {
                 as: "timeTypeDataPatient",
                 attributes: ["valueEn", "valueVi"],
               },
+              {
+                model: db.Doctor_Infor,
+                where: { lang: lang },
+                as: "doctorInforData",
+                include: [
+                  {
+                    model: db.User,
+                    as: "doctorData",
+                    attributes: ["firstName", "lastName"],
+                  },
+                ],
+              },
             ],
+
             raw: false,
             nest: true,
           });
@@ -587,11 +675,29 @@ let getListPatientForDoctor = (doctorId, roleId, date) => {
     }
   });
 };
+const buildTimeBooking = (appointmentData) => {
+  if (appointmentData && !_.isEmpty(appointmentData)) {
+    // process.stdout.write(
+    //   "Check appointmentData ??? \n" +
+    //     JSON.stringify(appointmentData, null, 2) +
+    //     "\n"
+    // );
+    let time = appointmentData.timeTypeDataPatient.valueVi;
 
-let sendRemedy = (data) => {
+    let date = moment
+      .unix(+appointmentData.date / 1000)
+      .locale("vi")
+      .format("dddd - DD//MM/YYYY");
+
+    return ` ${time} ${date}`;
+  }
+  return "";
+};
+let sendRemedyService = (data) => {
+  // process.stdout.write("Data: " + JSON.stringify(data, null, 2) + "\n");
   return new Promise(async (resolve, reject) => {
     try {
-      if (!data.email || !data.doctorId || !data.patientId || !data.timeType) {
+      if (!data.doctorId || !data.patientId || !data.timeType) {
         resolve({
           errCode: 1,
           errMessage: "Missing required parameters",
@@ -605,26 +711,84 @@ let sendRemedy = (data) => {
             timeType: data.timeType,
             statusId: "S2",
           },
-          raw: false,
+          include: [
+            {
+              model: db.Doctor_Infor,
+              as: "doctorInforData",
+              include: [
+                {
+                  model: db.User,
+                  as: "doctorData",
+                  attributes: ["firstName", "lastName", "phoneNumber"],
+                },
+              ],
+            },
+            {
+              model: db.AllCode,
+              as: "timeTypeDataPatient",
+              attributes: ["valueEn", "valueVi"],
+            },
+          ],
+          raw: false, // ✅ để có instance
+          nest: true, // ✅ để dữ liệu con thành object lồng nhau
         });
+
+        let appointmentData = appointment.get({ plain: true }); // Chuyển đổi instance thành object
+
         if (appointment) {
           appointment.statusId = "S3"; // S3 means sent remedy
           await appointment.save();
         }
 
         // Tạo file PDF đơn thuốc từ danh sách thuốc đã chọn
-        let medicines = data.selectedMedicines || [];
+        // process.stdout.write(
+        //   "Check appointmentData hehe" +
+        //     JSON.stringify(appointmentData, null, 2) +
+        //     "\n"
+        // );
+        let timeString = buildTimeBooking(appointmentData);
+
+        process.stdout.write("timeString " + timeString);
         let pdfBase64 = await getPrescriptionPDFBase64({
-          patientName: data.patientName,
-          doctorName: data.doctorName,
-          date: data.date,
-          medicines,
+          time: timeString,
+          patientName: data.patientInfo.fullName,
+          gender: data.patientInfo.gender,
+          birthDate: data.patientInfo.birthDate,
+          age: data.patientInfo.age,
+          phone: data.patientInfo.phone,
+          email: data.patientInfo.email,
+          address: data.patientInfo.address,
+          city: data.patientInfo.city,
+          weight: data.patientInfo.weight,
+          height: data.patientInfo.height,
+          job: data.patientInfo.occupation,
+          note: data.patientInfo.note,
+          clinicalExam: data.examInfo.clinicalExam,
+          detailExam: data.examInfo.detailExam,
+          diagnosis: data.examInfo.diagnosis,
+          allergies: data.examInfo.allergy,
+          advice: data.examInfo.advice,
+          treatment: data.examInfo.conclusion,
+          medicines: data.prescription,
+          totalPrice: `${data.totalPrice} VND`,
+          doctorName: `${appointmentData.doctorInforData.doctorData.firstName} ${appointmentData.doctorInforData.doctorData.lastName}`,
         });
+        // process.stdout.write("pdfBase64: " + pdfBase64 + "\n");
         data.imgBase64 = `data:application/pdf;base64,${pdfBase64}`;
         data.bookingId = appointment.id;
         data.amount = data.totalPrice;
+        data.time = timeString;
+        data.doctorName = `${appointmentData.doctorInforData.doctorData.firstName} ${appointmentData.doctorInforData.doctorData.lastName}`;
         //send email remedy kèm file PDF đơn thuốc
-        await emailServices.sendAttachment(data);
+        let result = await emailServices.sendAttachment(data);
+        // process.stdout.write("result: " + result + "\n");
+        let history = await db.History.create({
+          description: "Hóa đơn khám bệnh",
+          doctorId: data.doctorId,
+          patientId: data.patientId,
+          files: pdfBase64,
+        });
+        // process.stdout.write("history: " + history + "\n");
         resolve({
           errCode: 0,
           errMessage: "Send remedy succeed!",
@@ -698,7 +862,6 @@ let sendPayment = (data) => {
             description: data.description,
             bookingId: appointment.id,
           });
-          console.log("data cashierRecord", cashierRecord);
         }
 
         const dataSend = {
@@ -733,7 +896,6 @@ let getListGDPR = () => {
         },
       });
       const data = await response.json();
-      console.log("DATA:", data);
       resolve({
         errCode: 0,
         data: data.data.records,
@@ -748,8 +910,7 @@ let getListGDPR = () => {
   });
 };
 // Get all payment and update booking status
-let postConfirmPayment = (inputData) => {
-  console.log("inputData", inputData);
+let postConfirmPayment = (inputData, io) => {
   return new Promise(async (resolve, reject) => {
     if (inputData.error === 0) {
       const description = inputData.data.description || "";
@@ -791,6 +952,53 @@ let postConfirmPayment = (inputData) => {
           // Không làm gián đoạn flow nếu gửi email lỗi
           console.error("Gửi email xác nhận thanh toán thất bại:", e);
         }
+        // Emit PAYMENT_CONFIRMED to cashier and pharmacist
+        const onlineUsers = getOnlineUsers(); // Access onlineUsers from socket module
+        const notificationData = {
+          bookingId,
+          patientName: booking.patientData.firstName,
+          amount: inputData.data.amount,
+          transactionDateTime: inputData.data.transactionDateTime,
+          doctorId: booking.doctorId,
+        };
+
+        const cashiers = onlineUsers.filter((user) => user.roleId === "R4");
+        // const pharmacists = onlineUsers.filter((user) => user.roleId === "R5");
+        // const doctor = onlineUsers.find(
+        //   (user) => user.id === booking.doctorData.id
+        // );
+        const patient = onlineUsers.find(
+          (user) => user.id === booking.patientData.id
+        );
+
+        cashiers.forEach((cashier) => {
+          io.to(cashier.socketId).emit("PAYMENT_CONFIRMED", {
+            ...notificationData,
+            role: "cashier",
+          });
+        });
+
+        // pharmacists.forEach((pharmacist) => {
+        //   io.to(pharmacist.socketId).emit("PAYMENT_CONFIRMED", {
+        //     ...notificationData,
+        //     role: "pharmacist",
+        //   });
+        // });
+
+        // if (doctor) {
+        //   io.to(doctor.socketId).emit("PAYMENT_CONFIRMED", {
+        //     ...notificationData,
+        //     role: "doctor",
+        //   });
+        // }
+
+        if (patient) {
+          io.to(patient.socketId).emit("PAYMENT_CONFIRMED", {
+            ...notificationData,
+            role: "patient",
+          });
+        }
+
         resolve({
           errCode: 0,
           errMessage: "Payment confirmed and booking updated successfully",
@@ -829,7 +1037,7 @@ module.exports = {
   getExtraDoctorInforByIdServices: getExtraDoctorInforByIdServices,
   getProfileDoctorByIdServices: getProfileDoctorByIdServices,
   getListPatientForDoctor: getListPatientForDoctor,
-  sendRemedy: sendRemedy,
+  sendRemedyService: sendRemedyService,
   getListGDPR: getListGDPR,
   postConfirmPayment: postConfirmPayment,
   postMedicalAppointmentStatus: postMedicalAppointmentStatus,

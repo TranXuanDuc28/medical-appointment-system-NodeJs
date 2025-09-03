@@ -14,14 +14,29 @@ module.exports = (sequelize, DataTypes) => {
         targetKey: "id",
         as: "patientData",
       });
+      Booking.belongsTo(models.User, {
+        foreignKey: "doctorId",
+        targetKey: "id",
+        as: "doctorData",
+      });
       Booking.belongsTo(models.AllCode, {
         foreignKey: "timeType",
         targetKey: "keyMap",
         as: "timeTypeDataPatient",
       });
+      Booking.belongsTo(models.AllCode, {
+        foreignKey: "statusId",
+        targetKey: "keyMap",
+        as: "statusDataPatient",
+      });
       Booking.hasOne(models.Cashier, {
         foreignKey: "bookingId",
         as: "bookingData",
+      });
+      Booking.belongsTo(models.Doctor_Infor, {
+        foreignKey: "doctorId",
+        targetKey: "doctorId",
+        as: "doctorInforData",
       });
     }
   }

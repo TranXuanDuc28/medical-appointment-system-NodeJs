@@ -12,15 +12,19 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "clinicId",
         as: "doctorClinic",
       });
+      Clinic.hasMany(models.Markdown, {
+        foreignKey: "clinicId",
+        as: "clinicMarkdown",
+      });
+      Clinic.hasMany(models.Clinic_Translation, {
+        foreignKey: "clinicId",
+        as: "clinicData",
+      });
     }
   }
   Clinic.init(
     {
       image: DataTypes.STRING,
-      name: DataTypes.STRING,
-      address: DataTypes.STRING,
-      descriptionHTML: DataTypes.TEXT,
-      descriptionMarkdown: DataTypes.TEXT,
     },
     {
       sequelize,

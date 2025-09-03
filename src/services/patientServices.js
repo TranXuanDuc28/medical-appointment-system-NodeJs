@@ -27,6 +27,10 @@ let postBookAppointmentServices = async (data) => {
       } else {
         let token = uuidv4();
         const prefix = token.split("-")[0];
+
+        const nameParts = data.fullName.trim().split(" ");
+        const firstName = nameParts.slice(0, -1).join(" "); // bỏ chữ cuối
+        const lastName = nameParts[nameParts.length - 1]; // lấy chữ cuối
         await emailService.sendSimpleEmail({
           reciverEmail: data.email,
           patientName: data.fullName,
@@ -41,7 +45,8 @@ let postBookAppointmentServices = async (data) => {
           defaults: {
             email: data.email,
             roleId: "R3",
-            firstName: data.fullName,
+            firstName: firstName,
+            lastName: lastName,
             phoneNumber: data.phoneNumber,
             address: data.address,
             gender: data.selectedGender,
@@ -53,7 +58,8 @@ let postBookAppointmentServices = async (data) => {
           await db.User.update(
             {
               roleId: "R3",
-              firstName: data.fullName,
+              firstName: firstName,
+              lastName: lastName,
               address: data.address,
               gender: data.selectedGender,
               phoneNumber: data.phoneNumber,
@@ -131,7 +137,89 @@ let postVerifyBookAppointment = (data) => {
     }
   });
 };
+let getPatientAppointments = async (patientId) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      if (!patientId) {
+        resolve({
+          errCode: 1,
+          errMessage: "Missing required parameter: patientId",
+        });
+      } else {
+        let appointments = await db.Booking.findAll({
+          where: { patientId: patientId },
+          include: [
+            {
+              model: db.User,
+              as: "patientData",
+              attributes: ["firstName", "lastName"],
+            },
+            {
+              model: db.AllCode,
+              as: "timeTypeDataPatient",
+              attributes: ["valueEn", "valueVi"],
+            },
+            {
+              model: db.AllCode,
+              as: "statusDataPatient",
+              attributes: ["valueEn", "valueVi"],
+            },
+            {
+              model: db.Doctor_Infor,
+              as: "doctorInforData",
+              include: [
+                {
+                  model: db.User,
+                  as: "doctorData",
+                  attributes: ["firstName", "lastName"],
+                },
+                {
+                  model: db.Specialty,
+                  as: "doctorSpecialty",
+                  attributes: ["name"],
+                },
+              ],
+              raw: false,
+              nest: false,
+            },
+          ],
+          order: [["createdAt", "DESC"]],
+          raw: true,
+          nest: true,
+        });
+        //console.log("appointments", appointments);
+        if (appointments && appointments.length > 0) {
+          resolve({
+            errCode: 0,
+            data: appointments.map((appointment) => ({
+              id: appointment.id,
+              doctorName: `${appointment.doctorInforData.doctorData.firstName} ${appointment.doctorInforData.doctorData.lastName}`,
+              specialty: appointment.doctorInforData.doctorSpecialty
+                ? appointment.doctorInforData.doctorSpecialty.name
+                : "N/A",
+              time: appointment.date,
+              timeType: appointment.timeTypeDataPatient.valueVi,
+              status: appointment.statusDataPatient.valueVi,
+            })),
+          });
+        } else {
+          resolve({
+            errCode: 0,
+            data: [],
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching patient appointments:", error);
+      resolve({
+        errCode: -1,
+        errMessage: "Error from the server",
+      });
+    }
+  });
+};
 module.exports = {
   postBookAppointmentServices: postBookAppointmentServices,
   postVerifyBookAppointment: postVerifyBookAppointment,
+  getPatientAppointments: getPatientAppointments,
 };
