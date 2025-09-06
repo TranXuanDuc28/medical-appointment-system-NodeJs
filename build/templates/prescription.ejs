@@ -1,0 +1,316 @@
+<html>
+
+<head>
+  <meta charset="utf-8" />
+  <style>
+    body {
+      font-family: "Arial", sans-serif;
+      padding: 30px;
+      color: #222;
+      background: #fff;
+    }
+
+    h1 {
+      text-align: center;
+      color: #2d6a4f;
+      margin-bottom: 20px;
+    }
+
+    h4 {
+      text-align: center;
+      color: black;
+      margin-bottom: 30px;
+    }
+
+    .section {
+      margin-bottom: 25px;
+      border: 1px solid #ddd;
+      padding: 15px;
+      border-radius: 8px;
+    }
+
+    .section-title {
+      font-size: 18px;
+      font-weight: bold;
+      margin-bottom: 15px;
+      color: #1d3557;
+      border-bottom: 1px solid #ddd;
+      padding-bottom: 5px;
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+
+    .col {
+      width: 50%;
+      margin-bottom: 5px;
+    }
+
+    .label {
+      font-weight: bold;
+      display: inline-block;
+      width: 150px;
+    }
+
+    .value {
+      display: inline-block;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+    }
+
+    th,
+    td {
+      border: 1px solid #999;
+      padding: 8px;
+      text-align: left;
+    }
+
+    th {
+      background-color: #f1f1f1;
+    }
+
+    .total {
+      text-align: right;
+      font-weight: bold;
+      color: red;
+      margin-top: 10px;
+    }
+
+    .footer {
+      text-align: center;
+      margin-top: 40px;
+      font-size: 14px;
+      color: #555;
+    }
+
+    .signature {
+      text-align: right;
+      margin-top: 60px;
+      margin-right: 60px;
+      font-size: 16px;
+      color: #000;
+    }
+
+    .signature .label {
+      font-weight: bold;
+      margin-bottom: 20px;
+    }
+
+    .signature .name {
+      font-style: italic;
+      margin-top: 60px;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>ĐƠN THUỐC</h1>
+  <h4>
+    <%= time %>
+  </h4>
+
+  <!-- Thông tin bệnh nhân -->
+  <div class="section">
+    <div class="section-title">🧍 Thông tin bệnh nhân</div>
+    <div class="row">
+      <div class="col">
+        <span class="label">Họ tên:</span>
+        <span class="value">
+          <%= patientName %>
+        </span>
+      </div>
+      <div class="col">
+        <span class="label">Giới tính:</span>
+        <span class="value">
+          <%= gender %>
+        </span>
+      </div>
+    </div>
+    <div class="row">
+      <div class="col">
+        <span class="label">Ngày sinh:</span>
+        <span class="value">
+          <%= birthDate %>
+        </span>
+      </div>
+      <div class="col">
+        <span class="label">Tuổi:</span> <span class="value">
+          <%= age %>
+        </span>
+      </div>
+    </div>
+    <div class="row">
+      <div class="col">
+        <span class="label">Điện thoại:</span>
+        <span class="value">
+          <%= phone %>
+        </span>
+      </div>
+      <div class="col">
+        <span class="label">Email:</span>
+        <span class="value">
+          <%= email %>
+        </span>
+      </div>
+    </div>
+    <div class="row">
+      <div class="col">
+        <span class="label">Địa chỉ:</span>
+        <span class="value">
+          <%= address %>
+        </span>
+      </div>
+      <div class="col">
+        <span class="label">Tỉnh/TP:</span>
+        <span class="value">
+          <%= city %>
+        </span>
+      </div>
+    </div>
+    <div class="row">
+      <div class="col">
+        <span class="label">Cân nặng:</span>
+        <span class="value">
+          <%= weight %> kg
+        </span>
+      </div>
+      <div class="col">
+        <span class="label">Chiều cao:</span>
+        <span class="value">
+          <%= height %> cm
+        </span>
+      </div>
+    </div>
+    <div class="row">
+      <div class="col">
+        <span class="label">Nghề nghiệp:</span>
+        <span class="value">
+          <%= job %>
+        </span>
+      </div>
+      <div class="col">
+        <span class="label">Ghi chú:</span>
+        <span class="value">
+          <%= note %>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Thông tin khám bệnh -->
+  <div class="section">
+    <div class="section-title">🩺 Thông tin khám bệnh</div>
+    <div class="row">
+      <div class="col">
+        <span class="label">Khám lâm sàng:</span>
+        <span class="value">
+          <%= clinicalExam %>
+        </span>
+      </div>
+      <div class="col">
+        <span class="label">Khám chi tiết:</span>
+        <span class="value">
+          <%= detailExam %>
+        </span>
+      </div>
+    </div>
+    <div class="row">
+      <div class="col">
+        <span class="label">Chẩn đoán (ICD-10):</span>
+        <span class="value">
+          <%= diagnosis %>
+        </span>
+      </div>
+      <div class="col">
+        <span class="label">Dị ứng thuốc:</span>
+        <span class="value">
+          <%= allergies %>
+        </span>
+      </div>
+    </div>
+    <div class="row">
+      <div class="col">
+        <span class="label">Lời dặn:</span>
+        <span class="value">
+          <%= advice %>
+        </span>
+      </div>
+      <div class="col">
+        <span class="label">Kết luận & điều trị:</span>
+        <span class="value">
+          <%= treatment %>
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Danh sách thuốc -->
+  <div class="section">
+    <div class="section-title">💊 Danh sách thuốc</div>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Tên thuốc</th>
+          <th>Đơn vị</th>
+          <th>Số lượng</th>
+          <th>Đợt dùng</th>
+          <th>Ghi chú</th>
+          <th>Giá bán</th>
+          <th>Tổng tiền</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% medicines.forEach((m, idx)=> { %>
+          <tr>
+            <td>
+              <%= idx + 1 %>
+            </td>
+            <td>
+              <%= m.name %>
+            </td>
+            <td>
+              <%= m.unit %>
+            </td>
+            <td>
+              <%= m.quantity %>
+            </td>
+            <td>
+              <%= m.dosage %>
+            </td>
+            <td>
+              <%= m.note %>
+            </td>
+            <td>
+              <%= m.price %>
+            </td>
+            <td>
+              <%= m.total %>
+            </td>
+          </tr>
+          <% }) %>
+      </tbody>
+    </table>
+    <div class="total">Tổng tiền: <%= totalPrice %>
+    </div>
+  </div>
+
+  <!-- Chữ ký -->
+  <div class="signature">
+    <div class="label">Bác sĩ kê đơn</div>
+    <div class="name">
+      <%= doctorName %>
+    </div>
+  </div>
+
+  <div class="footer">Cảm ơn bạn đã sử dụng dịch vụ!</div>
+</body>
+
+</html>

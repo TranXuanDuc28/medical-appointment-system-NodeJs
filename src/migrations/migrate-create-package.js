@@ -1,95 +1,83 @@
-'use strict';
+"use strict";
 
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    await queryInterface.createTable('Packages', {
+    await queryInterface.createTable("Packages", {
       id: {
         allowNull: false,
         autoIncrement: true,
         primaryKey: true,
-        type: Sequelize.INTEGER
+        type: Sequelize.INTEGER,
       },
       name: {
         type: Sequelize.STRING,
-        allowNull: false
+        allowNull: false,
       },
       description: {
-        type: Sequelize.TEXT
+        type: Sequelize.TEXT,
       },
       price: {
         type: Sequelize.DECIMAL(10, 2),
-        allowNull: false
+        allowNull: false,
       },
       image: {
-        type: Sequelize.STRING
+        type: Sequelize.STRING,
       },
       category: {
-        type: Sequelize.STRING
+        type: Sequelize.STRING,
       },
       gender: {
-        type: Sequelize.ENUM('male', 'female', 'both'),
-        defaultValue: 'both'
+        type: Sequelize.ENUM("male", "female", "both"),
+        defaultValue: "both",
       },
       ageRange: {
-        type: Sequelize.STRING
+        type: Sequelize.STRING,
       },
       duration: {
         type: Sequelize.INTEGER,
-        comment: 'Thời gian khám (phút)'
+        comment: "Thời gian khám (phút)",
       },
       isActive: {
         type: Sequelize.BOOLEAN,
-        defaultValue: true
+        defaultValue: true,
       },
       isFeatured: {
         type: Sequelize.BOOLEAN,
-        defaultValue: false
+        defaultValue: false,
       },
       facilityId: {
         type: Sequelize.INTEGER,
-        references: {
-          model: 'Facilities',
-          key: 'id'
-        },
-        onUpdate: 'CASCADE',
-        onDelete: 'SET NULL'
       },
       specialtyId: {
         type: Sequelize.INTEGER,
-        references: {
-          model: 'Specialties',
-          key: 'id'
-        },
-        onUpdate: 'CASCADE',
-        onDelete: 'SET NULL'
       },
       includedServices: {
         type: Sequelize.TEXT,
-        comment: 'JSON string of included services'
+        comment: "JSON string of included services",
       },
       excludedServices: {
         type: Sequelize.TEXT,
-        comment: 'JSON string of excluded services'
+        comment: "JSON string of excluded services",
       },
       requirements: {
         type: Sequelize.TEXT,
-        comment: 'Yêu cầu trước khi khám'
+        comment: "Yêu cầu trước khi khám",
       },
       notes: {
         type: Sequelize.TEXT,
-        comment: 'Ghi chú'
+        comment: "Ghi chú",
       },
       createdAt: {
         allowNull: false,
-        type: Sequelize.DATE
+        type: Sequelize.DATE,
       },
       updatedAt: {
         allowNull: false,
-        type: Sequelize.DATE
-      }
+        type: Sequelize.DATE,
+      },
     });
   },
   down: async (queryInterface, Sequelize) => {
-    await queryInterface.dropTable('Packages');
-  }
-}; 
+    await queryInterface.dropTable("Packages");
+  },
+};
