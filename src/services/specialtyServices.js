@@ -267,7 +267,7 @@ let getDetailSpecialtyById = (inputId, location, lang) => {
                 required: false,
               },
             ],
-            raw: true,
+            raw: false,
           });
         }
         if (data.image) {

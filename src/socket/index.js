@@ -11,7 +11,7 @@ const { postBookAppointmentServices } = require("../services/patientServices");
 let socketInit = (app, server) => {
   const io = socket(server, {
     cors: {
-      origin: process.env.URL_REACT || "http://localhost:3000",
+      origin: process.env.URL_REACT,
       methods: ["GET", "POST"],
       credentials: true,
     },

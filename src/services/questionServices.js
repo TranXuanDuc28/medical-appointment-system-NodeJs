@@ -1,5 +1,6 @@
 const db = require("../models");
 const fetch = require("node-fetch"); // Đảm bảo đã cài node-fetch
+const PATH = process.env.API_CHATBOT_URL;
 const testsConfig = {
   BDI_II: {
     totalQuestions: 21,
@@ -118,14 +119,11 @@ async function getHealthAdvice(answers, scoreResult, questions) {
       ${answerDetails}
       `;
     // Gọi API AI
-    const aiResponse = await fetch(
-      "http://localhost:5002/generate_stream_question",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: prompt }),
-      }
-    );
+    const aiResponse = await fetch(`${PATH}/generate_stream_question`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: prompt }),
+    });
     console.log("AI Response Status:", aiResponse.status);
     const aiText = await aiResponse.text();
     return aiText.trim();

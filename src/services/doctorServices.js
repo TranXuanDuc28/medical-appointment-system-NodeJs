@@ -446,6 +446,12 @@ let getExtraDoctorInforByIdServices = (inputId, lang) => {
           },
           include: [
             {
+              model: db.Specialty_Translation,
+              where: { lang: lang },
+              as: "specialty",
+              attributes: ["name"],
+            },
+            {
               model: db.AllCode,
               as: "priceTypeData",
               attributes: ["valueEn", "valueVi"],
@@ -464,7 +470,7 @@ let getExtraDoctorInforByIdServices = (inputId, lang) => {
           raw: false,
           nest: true,
         });
-        process.stdout.write("check data extra", data);
+        console.log("data", data);
 
         if (!data) data = {};
         resolve({

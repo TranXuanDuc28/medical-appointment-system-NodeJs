@@ -13,6 +13,10 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "specialtyId",
         as: "specialtyData",
       });
+      Specialty_Translation.hasMany(models.Doctor_Infor, {
+        foreignKey: "specialtyId",
+        as: "specialty",
+      });
     }
   }
   Specialty_Translation.init(
