@@ -14,7 +14,7 @@ const ejs = require("ejs");
 const MAX_NUMBER_SCHEDULE = process.env.MAX_NUMBER_SCHEDULE;
 const https = require("https");
 const axios = require("axios");
-const fetch = require("node-fetch");
+import fetch from "node-fetch";
 const puppeteer = require("puppeteer");
 let getPrescriptionPDFBase64 = async (data) => {
   // Tạo HTML template cho đơn thuốc

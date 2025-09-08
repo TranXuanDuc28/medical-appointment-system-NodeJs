@@ -1,5 +1,5 @@
 const db = require("../models");
-const fetch = require("node-fetch"); // Đảm bảo đã cài node-fetch
+import fetch from "node-fetch";
 const PATH = process.env.API_CHATBOT_URL;
 const testsConfig = {
   BDI_II: {

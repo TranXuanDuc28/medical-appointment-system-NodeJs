@@ -332,7 +332,7 @@ function _arrayLikeToArray(r, a) {
   return n;
 }
 var db = require("../models");
-var fetch = require("node-fetch"); // Đảm bảo đã cài node-fetch
+import fetch from "node-fetch";
 var testsConfig = {
   BDI_II: {
     totalQuestions: 21,
