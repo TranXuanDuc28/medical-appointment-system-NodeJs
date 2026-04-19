@@ -2,6 +2,7 @@ import express from "express";
 import bodyParser from "body-parser";
 import viewEngine from "./config/viewEngine";
 import initWebRoutes from "./route/web";
+import cookieParser from 'cookie-parser';
 import connectDB from "./config/connectDB";
 import http from "http";
 import { socketInit } from "./socket/index.js";
@@ -29,6 +30,7 @@ app.use(function (req, res, next) {
   // Set to true if you need the website to include cookies in the requests sent
   // to the API (e.g. in case you use sessions)
   res.setHeader("Access-Control-Allow-Credentials", true);
+  res.setHeader("Access-Control-Allow-Headers", "X-Requested-With, content-type, Authorization, Origin, Accept");
 
   // Pass to next layer of middleware
   next();
@@ -37,6 +39,8 @@ app.use(function (req, res, next) {
 
 app.use(bodyParser.json({ limit: "50mb" }));
 app.use(bodyParser.urlencoded({ limit: "50mb", extended: true }));
+
+app.use(cookieParser());
 
 viewEngine(app);
 initWebRoutes(app);

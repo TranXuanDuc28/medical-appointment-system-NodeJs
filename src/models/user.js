@@ -34,6 +34,7 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "patientId",
         as: "patientData",
       });
+      User.belongsTo(models.Group, { foreignKey: "groupId" });
     }
   }
   User.init(
@@ -48,6 +49,7 @@ module.exports = (sequelize, DataTypes) => {
       image: DataTypes.STRING,
       roleId: DataTypes.STRING,
       positionId: DataTypes.STRING,
+      groupId: DataTypes.INTEGER,
     },
     {
       sequelize,

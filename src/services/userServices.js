@@ -52,6 +52,7 @@ let handleUserLogin = (email, password) => {
             "lastName",
             "password",
             "image",
+            "groupId",
           ],
           where: { email: email },
           include: [
@@ -65,8 +66,19 @@ let handleUserLogin = (email, password) => {
               as: "positionData",
               attributes: ["valueEn", "valueVi"],
             },
+            {
+              model: db.Group,
+              attributes: ["id", "name", "description"],
+              include: [
+                {
+                  model: db.Role,
+                  attributes: ["id", "url", "description"],
+                  through: { attributes: [] },
+                },
+              ],
+            },
           ],
-          raw: true,
+          raw: false,
           nest: true,
         });
 

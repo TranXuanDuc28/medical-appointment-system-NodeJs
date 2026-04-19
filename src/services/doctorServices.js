@@ -715,7 +715,7 @@ let sendRemedyService = (data) => {
             doctorId: data.doctorId,
             patientId: data.patientId,
             timeType: data.timeType,
-            statusId: "S2",
+            statusId: "S2", //Confirmed
           },
           include: [
             {

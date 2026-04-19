@@ -1,5 +1,8 @@
 import userServices from "../services/userServices";
+import JWTaction from "../middleware/JWTaction";
+
 let handleRegister = async (req, res) => {
+// ... existing code
   let email = req.body.email;
   let password = req.body.password;
   let firstName = req.body.firstName;
@@ -34,10 +37,31 @@ let handleLogin = async (req, res) => {
     });
   }
   let userData = await userServices.handleUserLogin(email, password);
+  
+  if (userData && userData.errCode === 0) {
+    let payload = {
+      email: userData.users.email,
+      roles: userData.users.Group && userData.users.Group.Roles ? userData.users.Group.Roles : [],
+    };
+    let token = JWTaction.createJWT(payload);
+    res.cookie("jwt", token, { httpOnly: true, maxAge: +process.env.COOKIE_EXPIRES_IN });
+    
+    userData.token = token;
+  }
+
   return res.status(200).json({
     errCode: userData.errCode,
     errMessage: userData.errMessage,
     users: userData.users ? userData.users : {},
+    token: userData.token ? userData.token : ""
+  });
+};
+
+let handleLogout = (req, res) => {
+  res.clearCookie("jwt");
+  return res.status(200).json({
+    errCode: 0,
+    message: "Clear cookie success!"
   });
 };
 let handlePatientChatLogin = async (req, res) => {
@@ -124,4 +148,5 @@ module.exports = {
   handleEditUsers: handleEditUsers,
   getAllCode: getAllCode,
   handlePatientChatLogin: handlePatientChatLogin,
+  handleLogout: handleLogout,
 };

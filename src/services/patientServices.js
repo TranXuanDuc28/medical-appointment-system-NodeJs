@@ -174,8 +174,8 @@ let getPatientAppointments = async (patientId) => {
                   attributes: ["firstName", "lastName"],
                 },
                 {
-                  model: db.Specialty,
-                  as: "doctorSpecialty",
+                  model: db.Specialty_Translation,
+                  as: "specialty",
                   attributes: ["name"],
                 },
               ],
@@ -187,19 +187,19 @@ let getPatientAppointments = async (patientId) => {
           raw: true,
           nest: true,
         });
-        //console.log("appointments", appointments);
+
         if (appointments && appointments.length > 0) {
           resolve({
             errCode: 0,
             data: appointments.map((appointment) => ({
               id: appointment.id,
               doctorName: `${appointment.doctorInforData.doctorData.firstName} ${appointment.doctorInforData.doctorData.lastName}`,
-              specialty: appointment.doctorInforData.doctorSpecialty
-                ? appointment.doctorInforData.doctorSpecialty.name
+              specialty: appointment.doctorInforData.specialty
+                ? appointment.doctorInforData.specialty.name
                 : "N/A",
               time: appointment.date,
-              timeType: appointment.timeTypeDataPatient.valueVi,
-              status: appointment.statusDataPatient.valueVi,
+              timeType: appointment.timeTypeDataPatient ? (appointment.timeTypeDataPatient.valueVi || appointment.timeTypeDataPatient.valueEn) : "",
+              status: appointment.statusDataPatient ? (appointment.statusDataPatient.valueVi || appointment.statusDataPatient.valueEn) : "",
             })),
           });
         } else {
