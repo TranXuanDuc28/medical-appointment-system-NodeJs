@@ -47,6 +47,7 @@ let createSpecialty = (inputData) => {
           specialtyId: specialtyData.id,
           contentHTML: inputData.contentHTML,
           contentMarkdown: inputData.contentMarkdown,
+          description: inputData.description || null,
           lang: inputData.lang,
         });
         resolve({
@@ -99,6 +100,9 @@ let createSpecialty = (inputData) => {
         if (specialtyMarkdown) {
           specialtyMarkdown.contentHTML = inputData.contentHTML;
           specialtyMarkdown.contentMarkdown = inputData.contentMarkdown;
+          if (inputData.description !== undefined) {
+            specialtyMarkdown.description = inputData.description;
+          }
           specialtyMarkdown.lang = inputData.lang;
           specialtyMarkdown.updatedAt = new Date();
           await specialtyMarkdown.save();
@@ -108,6 +112,7 @@ let createSpecialty = (inputData) => {
             specialtyId: inputData.specialtyId,
             contentHTML: inputData.contentHTML,
             contentMarkdown: inputData.contentMarkdown,
+            description: inputData.description || null,
             lang: inputData.lang,
           });
         }
@@ -145,9 +150,9 @@ let getAllSpecialty = (lang) => {
           {
             model: db.Markdown,
             where: { lang: lang },
-            attributes: ["contentHTML", "contentMarkdown"],
+            attributes: ["contentHTML", "contentMarkdown", "description"],
             as: "specialtyMarkdown",
-            require: false,
+            required: false,
           },
         ],
         raw: true,
@@ -167,6 +172,7 @@ let getAllSpecialty = (lang) => {
         return {
           ...item,
           ...item.specialtyData,
+          description: item.specialtyMarkdown ? item.specialtyMarkdown.description : null,
         };
       });
       resolve({
@@ -195,7 +201,7 @@ let getDetailSpecialtyById = (inputId, location, lang) => {
               id: inputId,
             },
 
-            attributes: ["image"],
+            attributes: ["id", "image"],
             include: [
               {
                 model: db.Specialty_Translation,
@@ -216,10 +222,11 @@ let getDetailSpecialtyById = (inputId, location, lang) => {
                   lang: lang,
                 },
                 attributes: ["doctorId", "provinceId"],
+                required: false,
               },
               {
                 model: db.Markdown,
-                attributes: ["contentHTML", "contentMarkdown"],
+                attributes: ["contentHTML", "contentMarkdown", "description"],
                 as: "specialtyMarkdown",
                 where: { specialtyId: inputId, lang: lang },
                 required: false,
@@ -233,7 +240,7 @@ let getDetailSpecialtyById = (inputId, location, lang) => {
               id: inputId,
             },
 
-            attributes: ["image"],
+            attributes: ["id", "image"],
             include: [
               {
                 model: db.Specialty_Translation,
@@ -261,7 +268,7 @@ let getDetailSpecialtyById = (inputId, location, lang) => {
 
               {
                 model: db.Markdown,
-                attributes: ["contentHTML", "contentMarkdown"],
+                attributes: ["contentHTML", "contentMarkdown", "description"],
                 as: "specialtyMarkdown",
                 where: { specialtyId: inputId, lang: lang },
                 required: false,
@@ -270,15 +277,14 @@ let getDetailSpecialtyById = (inputId, location, lang) => {
             raw: false,
           });
         }
-        if (data.image) {
-          data.image = new Buffer.from(data.image, "base64").toString("binary");
+        if (data && data.image) {
+          data.image = Buffer.from(data.image, "base64").toString("binary");
         }
 
-        //console.log("Duc data", data);
         resolve({
-          errMessage: "ok",
+          errMessage: data ? "ok" : "Không tìm thấy chuyên khoa",
           errCode: 0,
-          data,
+          data: data || {},
         });
       }
     } catch (e) {

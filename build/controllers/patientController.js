@@ -96,8 +96,46 @@ var getPatientAppointments = /*#__PURE__*/function () {
     return _ref3.apply(this, arguments);
   };
 }();
+var getPatientHistory = /*#__PURE__*/function () {
+  var _ref4 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee4(req, res) {
+    var patientId, history, _t4;
+    return _regenerator().w(function (_context4) {
+      while (1) switch (_context4.p = _context4.n) {
+        case 0:
+          _context4.p = 0;
+          patientId = req.query.patientId;
+          if (patientId) {
+            _context4.n = 1;
+            break;
+          }
+          return _context4.a(2, res.status(400).json({
+            errCode: 1,
+            errMessage: "Missing required parameter: patientId"
+          }));
+        case 1:
+          _context4.n = 2;
+          return _patientServices["default"].getPatientHistory(patientId);
+        case 2:
+          history = _context4.v;
+          return _context4.a(2, res.status(200).json(history));
+        case 3:
+          _context4.p = 3;
+          _t4 = _context4.v;
+          console.error("Error fetching patient history:", _t4);
+          return _context4.a(2, res.status(500).json({
+            errCode: -1,
+            errMessage: "Error from the server"
+          }));
+      }
+    }, _callee4, null, [[0, 3]]);
+  }));
+  return function getPatientHistory(_x7, _x8) {
+    return _ref4.apply(this, arguments);
+  };
+}();
 module.exports = {
   postBookAppointment: postBookAppointment,
   postVerifyBookAppointment: postVerifyBookAppointment,
-  getPatientAppointments: getPatientAppointments
+  getPatientAppointments: getPatientAppointments,
+  getPatientHistory: getPatientHistory
 };

@@ -44,14 +44,24 @@ let handleLogin = async (req, res) => {
       roles: userData.users.Group && userData.users.Group.Roles ? userData.users.Group.Roles : [],
     };
     let token = JWTaction.createJWT(payload);
+    let refreshToken = JWTaction.createRefreshToken(payload);
+
     const cookieMaxAge = process.env.COOKIE_EXPIRES_IN && !isNaN(+process.env.COOKIE_EXPIRES_IN)
       ? +process.env.COOKIE_EXPIRES_IN
       : 86400000;
+    const cookieRefreshMaxAge = process.env.COOKIE_REFRESH_EXPIRES_IN && !isNaN(+process.env.COOKIE_REFRESH_EXPIRES_IN)
+      ? +process.env.COOKIE_REFRESH_EXPIRES_IN
+      : 86400000 * 7;
+
     if (token) {
       res.cookie("jwt", token, { httpOnly: true, maxAge: cookieMaxAge });
     }
+    if (refreshToken) {
+      res.cookie("refreshToken", refreshToken, { httpOnly: true, maxAge: cookieRefreshMaxAge });
+    }
     
     userData.token = token;
+    userData.refreshToken = refreshToken;
   }
 
   return res.status(200).json({
@@ -64,6 +74,7 @@ let handleLogin = async (req, res) => {
 
 let handleLogout = (req, res) => {
   res.clearCookie("jwt");
+  res.clearCookie("refreshToken");
   return res.status(200).json({
     errCode: 0,
     message: "Clear cookie success!"
@@ -79,11 +90,73 @@ let handlePatientChatLogin = async (req, res) => {
     });
   }
   let userData = await userServices.handlePatientChatLogin(email, password);
+  if (userData && userData.errCode === 0) {
+    let payload = {
+      email: userData.users.email,
+      roles: userData.users.Group && userData.users.Group.Roles ? userData.users.Group.Roles : [],
+    };
+    let token = JWTaction.createJWT(payload);
+    let refreshToken = JWTaction.createRefreshToken(payload);
+
+    res.cookie("jwt", token, { httpOnly: true, maxAge: +process.env.COOKIE_EXPIRES_IN });
+    res.cookie("refreshToken", refreshToken, { httpOnly: true, maxAge: +process.env.COOKIE_REFRESH_EXPIRES_IN });
+    
+    userData.token = token;
+    userData.refreshToken = refreshToken;
+  }
   return res.status(200).json({
     errCode: userData.errCode,
     errMessage: userData.errMessage,
     users: userData.users ? userData.users : {},
+    token: userData.token ? userData.token : "",
   });
+};
+let handleRefreshToken = async (req, res) => {
+  try {
+    const refreshToken = req.cookies.refreshToken;
+    if (!refreshToken) {
+      return res.status(401).json({
+        errCode: -1,
+        errMessage: "Không tìm thấy Refresh Token!",
+      });
+    }
+
+    const decoded = JWTaction.verifyRefreshToken(refreshToken);
+    if (!decoded) {
+      return res.status(401).json({
+        errCode: -1,
+        errMessage: "Refresh Token hết hạn hoặc không hợp lệ!",
+      });
+    }
+
+    const userData = await userServices.getUserByEmail(decoded.email);
+    if (userData && userData.errCode === 0) {
+      const payload = {
+        email: userData.users.email,
+        roles: userData.users.Group && userData.users.Group.Roles ? userData.users.Group.Roles : [],
+      };
+      
+      const newAccessToken = JWTaction.createJWT(payload);
+      res.cookie("jwt", newAccessToken, { httpOnly: true, maxAge: +process.env.COOKIE_EXPIRES_IN });
+
+      return res.status(200).json({
+        errCode: 0,
+        errMessage: "Làm mới Access Token thành công!",
+        token: newAccessToken,
+      });
+    } else {
+      return res.status(401).json({
+        errCode: -1,
+        errMessage: "Không tìm thấy người dùng của Token này!",
+      });
+    }
+  } catch (error) {
+    console.error("Lỗi khi refresh token:", error);
+    return res.status(500).json({
+      errCode: -1,
+      errMessage: "Lỗi hệ thống khi refresh token!",
+    });
+  }
 };
 let handleGetAllUsers = async (req, res) => {
   let id = req.query.id;
@@ -144,6 +217,17 @@ let getAllCode = async (req, res) => {
     });
   }
 };
+let saveFCMToken = async (req, res) => {
+  try {
+    let message = await userServices.saveFCMToken(req.body);
+    return res.status(200).json(message);
+  } catch (error) {
+    return res.status(200).json({
+      errCode: -1,
+      errMessage: "Lỗi từ server!",
+    });
+  }
+};
 module.exports = {
   handleRegister: handleRegister,
   handleLogin: handleLogin,
@@ -154,4 +238,6 @@ module.exports = {
   getAllCode: getAllCode,
   handlePatientChatLogin: handlePatientChatLogin,
   handleLogout: handleLogout,
+  handleRefreshToken: handleRefreshToken,
+  saveFCMToken: saveFCMToken,
 };

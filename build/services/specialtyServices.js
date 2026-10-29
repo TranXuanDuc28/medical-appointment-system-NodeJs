@@ -67,6 +67,7 @@ var createSpecialty = function createSpecialty(inputData) {
               specialtyId: specialtyData.id,
               contentHTML: inputData.contentHTML,
               contentMarkdown: inputData.contentMarkdown,
+              description: inputData.description || null,
               lang: inputData.lang
             });
           case 4:
@@ -147,6 +148,9 @@ var createSpecialty = function createSpecialty(inputData) {
             }
             specialtyMarkdown.contentHTML = inputData.contentHTML;
             specialtyMarkdown.contentMarkdown = inputData.contentMarkdown;
+            if (inputData.description !== undefined) {
+              specialtyMarkdown.description = inputData.description;
+            }
             specialtyMarkdown.lang = inputData.lang;
             specialtyMarkdown.updatedAt = new Date();
             _context.n = 14;
@@ -160,6 +164,7 @@ var createSpecialty = function createSpecialty(inputData) {
               specialtyId: inputData.specialtyId,
               contentHTML: inputData.contentHTML,
               contentMarkdown: inputData.contentMarkdown,
+              description: inputData.description || null,
               lang: inputData.lang
             });
           case 16:
@@ -211,9 +216,9 @@ var getAllSpecialty = function getAllSpecialty(lang) {
                 where: {
                   lang: lang
                 },
-                attributes: ["contentHTML", "contentMarkdown"],
+                attributes: ["contentHTML", "contentMarkdown", "description"],
                 as: "specialtyMarkdown",
-                require: false
+                required: false
               }],
               raw: true,
               nest: true
@@ -231,7 +236,9 @@ var getAllSpecialty = function getAllSpecialty(lang) {
               });
             }
             data = specialtyResult.map(function (item) {
-              return _objectSpread(_objectSpread({}, item), item.specialtyData);
+              return _objectSpread(_objectSpread(_objectSpread({}, item), item.specialtyData), {}, {
+                description: item.specialtyMarkdown ? item.specialtyMarkdown.description : null
+              });
             });
             resolve({
               errMessage: "Lấy tất cả chuyên khoa",
@@ -283,7 +290,7 @@ var getDetailSpecialtyById = function getDetailSpecialtyById(inputId, location, 
               where: {
                 id: inputId
               },
-              attributes: ["image"],
+              attributes: ["id", "image"],
               include: [{
                 model: db.Specialty_Translation,
                 where: {
@@ -301,10 +308,11 @@ var getDetailSpecialtyById = function getDetailSpecialtyById(inputId, location, 
                 where: {
                   lang: lang
                 },
-                attributes: ["doctorId", "provinceId"]
+                attributes: ["doctorId", "provinceId"],
+                required: false
               }, {
                 model: db.Markdown,
-                attributes: ["contentHTML", "contentMarkdown"],
+                attributes: ["contentHTML", "contentMarkdown", "description"],
                 as: "specialtyMarkdown",
                 where: {
                   specialtyId: inputId,
@@ -324,7 +332,7 @@ var getDetailSpecialtyById = function getDetailSpecialtyById(inputId, location, 
               where: {
                 id: inputId
               },
-              attributes: ["image"],
+              attributes: ["id", "image"],
               include: [{
                 model: db.Specialty_Translation,
                 where: {
@@ -347,7 +355,7 @@ var getDetailSpecialtyById = function getDetailSpecialtyById(inputId, location, 
                 required: false
               }, {
                 model: db.Markdown,
-                attributes: ["contentHTML", "contentMarkdown"],
+                attributes: ["contentHTML", "contentMarkdown", "description"],
                 as: "specialtyMarkdown",
                 where: {
                   specialtyId: inputId,
@@ -360,15 +368,13 @@ var getDetailSpecialtyById = function getDetailSpecialtyById(inputId, location, 
           case 4:
             data = _context3.v;
           case 5:
-            if (data.image) {
-              data.image = new Buffer.from(data.image, "base64").toString("binary");
+            if (data && data.image) {
+              data.image = Buffer.from(data.image, "base64").toString("binary");
             }
-
-            //console.log("Duc data", data);
             resolve({
-              errMessage: "ok",
+              errMessage: data ? "ok" : "Không tìm thấy chuyên khoa",
               errCode: 0,
-              data: data
+              data: data || {}
             });
           case 6:
             _context3.n = 8;

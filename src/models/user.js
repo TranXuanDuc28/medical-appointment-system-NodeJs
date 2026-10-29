@@ -50,6 +50,7 @@ module.exports = (sequelize, DataTypes) => {
       roleId: DataTypes.STRING,
       positionId: DataTypes.STRING,
       groupId: DataTypes.INTEGER,
+      fcmToken: DataTypes.TEXT,
     },
     {
       sequelize,

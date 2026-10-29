@@ -130,7 +130,21 @@ let handlePatientChatLogin = (email, password) => {
             "password",
           ],
           where: { email: email },
-          raw: true,
+          include: [
+            {
+              model: db.Group,
+              attributes: ["id", "name", "description"],
+              include: [
+                {
+                  model: db.Role,
+                  attributes: ["id", "url", "description"],
+                  through: { attributes: [] },
+                },
+              ],
+            },
+          ],
+          raw: false,
+          nest: true,
         });
         if (users) {
           let check = bcrypt.compareSync(password, users.password);
@@ -142,8 +156,9 @@ let handlePatientChatLogin = (email, password) => {
             } else {
               userData.errCode = 0;
               userData.errMessage = "Ok!";
-              delete users.password;
-              userData.users = users;
+              let userPlain = users.get({ plain: true });
+              delete userPlain.password;
+              userData.users = userPlain;
             }
           } else {
             userData.errCode = 3;
@@ -207,11 +222,18 @@ let getAllUsers = (userId) => {
 let createNewUsers = (data) => {
   return new Promise(async (resolve, reject) => {
     try {
+      if (!data.email || !data.password || !data.firstName || !data.lastName) {
+        resolve({
+          errCode: 2,
+          errMessage: "Vui lòng nhập đầy đủ các trường thông tin bắt buộc (Email, Mật khẩu, Họ, Tên)!",
+        });
+        return;
+      }
       let check = await checkUserEmail(data.email);
       if (check === true) {
         resolve({
           errCode: 1,
-          errMessage: "Email da ton tai! Vui long thu email khac!",
+          errMessage: "Email đã tồn tại! Vui lòng thử email khác!",
         });
       } else {
         let hashPasswordFromBcrypt = await hashUserPassword(data.password);
@@ -329,6 +351,76 @@ let getAllCodeServices = (typeInput) => {
     }
   });
 };
+let getUserByEmail = (email) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      let user = await db.User.findOne({
+        where: { email: email },
+        include: [
+          {
+            model: db.Group,
+            include: [
+              {
+                model: db.Role,
+                attributes: ["url", "description"],
+                through: { attributes: [] },
+              },
+            ],
+          },
+        ],
+        raw: false,
+        nest: true,
+      });
+      if (user) {
+        let plainUser = user.get({ plain: true });
+        delete plainUser.password;
+        resolve({
+          errCode: 0,
+          users: plainUser,
+        });
+      } else {
+        resolve({
+          errCode: 1,
+          errMessage: "Không tìm thấy người dùng!",
+        });
+      }
+    } catch (e) {
+      reject(e);
+    }
+  });
+};
+let saveFCMToken = (data) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      if (!data.userId || !data.fcmToken) {
+        resolve({
+          errCode: 1,
+          errMessage: "Missing required parameters!",
+        });
+      } else {
+        let user = await db.User.findOne({
+          where: { id: data.userId },
+          raw: false,
+        });
+        if (user) {
+          user.fcmToken = data.fcmToken;
+          await user.save();
+          resolve({
+            errCode: 0,
+            errMessage: "Save FCM Token succeed!",
+          });
+        } else {
+          resolve({
+            errCode: 2,
+            errMessage: "User not found!",
+          });
+        }
+      }
+    } catch (e) {
+      reject(e);
+    }
+  });
+};
 module.exports = {
   handleUserRegister: handleUserRegister,
   handleUserLogin: handleUserLogin,
@@ -338,4 +430,6 @@ module.exports = {
   deleteUsers: deleteUsers,
   updateUserData: updateUserData,
   getAllCodeServices: getAllCodeServices,
+  getUserByEmail: getUserByEmail,
+  saveFCMToken: saveFCMToken,
 };

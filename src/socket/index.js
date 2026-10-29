@@ -5,13 +5,20 @@ const db = require("../models/index");
 require("dotenv").config();
 const {
   getScheduleDoctorByDateServices,
+  sendPayment,
 } = require("../services/doctorServices");
 const { postBookAppointmentServices } = require("../services/patientServices");
 
 let socketInit = (app, server) => {
   const io = socket(server, {
     cors: {
-      origin: process.env.URL_REACT,
+      origin: (origin, callback) => {
+        if (!origin || origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:") || origin.includes("192.168.")) {
+          callback(null, true);
+        } else {
+          callback(null, process.env.URL_REACT);
+        }
+      },
       methods: ["GET", "POST"],
       credentials: true,
     },
@@ -68,6 +75,19 @@ let socketInit = (app, server) => {
         io.emit("USER_ADDED", onlineUsers);
       }
     });
+    // Appointment: Join schedule room for doctor and date
+    socket.on("JOIN_ROOM", ({ doctorId, date }) => {
+      const currentRooms = Array.from(socket.rooms);
+      currentRooms.forEach((room) => {
+        if (room.startsWith("schedule:")) {
+          socket.leave(room);
+        }
+      });
+      const roomName = `schedule:${doctorId}:${date}`;
+      socket.join(roomName);
+      console.log(`Socket ${socket.id} joined room: ${roomName}`);
+    });
+
     // Appointment: Request available slots
     socket.on("GET_SLOTS", async ({ doctorId, date }) => {
       console.log(" start result", doctorId, date);
@@ -107,8 +127,8 @@ let socketInit = (app, server) => {
           const patient = onlineUsers.find((u) => u.id === data.patientId);
           const doctor = onlineUsers.find((u) => u.id === data.doctorId);
 
-          // Broadcast slot update to all clients
-          io.emit("SLOT_UPDATED", {
+          // Broadcast slot update ONLY to clients in the specific room
+          io.to(`schedule:${data.doctorId}:${data.date}`).emit("SLOT_UPDATED", {
             doctorId: data.doctorId,
             date: data.date,
             timeType: data.timeType,
@@ -152,7 +172,7 @@ let socketInit = (app, server) => {
     // });
     socket.on("SEND_PAYMENT", async (data) => {
       try {
-        const results = await postSendPayment(data);
+        const results = await sendPayment(data, io);
         if (results.errCode === 0) {
           socket.emit("PAYMENT_SENT", {
             message: "Payment request sent successfully",

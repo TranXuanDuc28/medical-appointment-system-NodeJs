@@ -7,13 +7,20 @@ import connectDB from "./config/connectDB";
 import http from "http";
 import { socketInit } from "./socket/index.js";
 import path from "path";
+import { initRedis } from "./utils/redis";
+import { initQueue } from "./utils/queue";
 require("dotenv").config();
 
 let app = express();
 // app.use(cors({origin: true}));
 app.use(function (req, res, next) {
   // Website you wish to allow to connect
-  res.setHeader("Access-Control-Allow-Origin", process.env.URL_REACT);
+  const origin = req.headers.origin;
+  if (origin && (origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:") || origin.includes("192.168."))) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  } else {
+    res.setHeader("Access-Control-Allow-Origin", process.env.URL_REACT || "*");
+  }
 
   // Request methods you wish to allow
   res.setHeader(
@@ -49,6 +56,8 @@ initWebRoutes(app);
 app.use("/uploads", express.static(path.join(__dirname, "public/uploads")));
 
 connectDB();
+initRedis();
+initQueue();
 
 const server = http.createServer(app);
 socketInit(app, server);

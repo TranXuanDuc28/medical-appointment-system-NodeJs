@@ -1,7 +1,13 @@
 import specialtyService from "../services/specialtyServices";
+import { clearCachePattern } from "../utils/redis";
+
 let createSpecialty = async (req, res) => {
   try {
     let infor = await specialtyService.createSpecialty(req.body);
+    if (infor && infor.errCode === 0) {
+      await clearCachePattern("cache:/api/get-specialty*");
+      await clearCachePattern("cache:/api/get-detail-specialty*");
+    }
     return res.status(200).json(infor);
   } catch (e) {
     console.log(e);

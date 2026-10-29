@@ -10,7 +10,7 @@ var _nodeHtmlToImage = _interopRequireDefault(require("node-html-to-image"));
 var _moment = _interopRequireWildcard(require("moment"));
 var _inspector = require("inspector");
 var _nodeFetch = _interopRequireDefault(require("node-fetch"));
-function _interopRequireWildcard(e, t) { if ("function" == typeof WeakMap) var r = new WeakMap(), n = new WeakMap(); return (_interopRequireWildcard = function _interopRequireWildcard(e, t) { if (!t && e && e.__esModule) return e; var o, i, f = { __proto__: null, "default": e }; if (null === e || "object" != _typeof(e) && "function" != typeof e) return f; if (o = t ? n : r) { if (o.has(e)) return o.get(e); o.set(e, f); } for (var _t18 in e) "default" !== _t18 && {}.hasOwnProperty.call(e, _t18) && ((i = (o = Object.defineProperty) && Object.getOwnPropertyDescriptor(e, _t18)) && (i.get || i.set) ? o(f, _t18, i) : f[_t18] = e[_t18]); return f; })(e, t); }
+function _interopRequireWildcard(e, t) { if ("function" == typeof WeakMap) var r = new WeakMap(), n = new WeakMap(); return (_interopRequireWildcard = function _interopRequireWildcard(e, t) { if (!t && e && e.__esModule) return e; var o, i, f = { __proto__: null, "default": e }; if (null === e || "object" != _typeof(e) && "function" != typeof e) return f; if (o = t ? n : r) { if (o.has(e)) return o.get(e); o.set(e, f); } for (var _t20 in e) "default" !== _t20 && {}.hasOwnProperty.call(e, _t20) && ((i = (o = Object.defineProperty) && Object.getOwnPropertyDescriptor(e, _t20)) && (i.get || i.set) ? o(f, _t20, i) : f[_t20] = e[_t20]); return f; })(e, t); }
 function _interopRequireDefault(e) { return e && e.__esModule ? e : { "default": e }; }
 function ownKeys(e, r) { var t = Object.keys(e); if (Object.getOwnPropertySymbols) { var o = Object.getOwnPropertySymbols(e); r && (o = o.filter(function (r) { return Object.getOwnPropertyDescriptor(e, r).enumerable; })), t.push.apply(t, o); } return t; }
 function _objectSpread(e) { for (var r = 1; r < arguments.length; r++) { var t = null != arguments[r] ? arguments[r] : {}; r % 2 ? ownKeys(Object(t), !0).forEach(function (r) { _defineProperty(e, r, t[r]); }) : Object.getOwnPropertyDescriptors ? Object.defineProperties(e, Object.getOwnPropertyDescriptors(t)) : ownKeys(Object(t)).forEach(function (r) { Object.defineProperty(e, r, Object.getOwnPropertyDescriptor(t, r)); }); } return e; }
@@ -25,6 +25,8 @@ require("dotenv").config();
 var _require = require("../socket/onlineUsers"),
   getOnlineUsers = _require.getOnlineUsers;
 var payOS = require("../config/payos");
+var _require2 = require("../config/firebase"),
+  sendPushNotification = _require2.sendPushNotification;
 var path = require("path");
 var ejs = require("ejs");
 var MAX_NUMBER_SCHEDULE = process.env.MAX_NUMBER_SCHEDULE;
@@ -88,7 +90,7 @@ var getPrescriptionPDFBase64 = /*#__PURE__*/function () {
   };
 }();
 var getTopDoctorHomeServices = function getTopDoctorHomeServices(limitInput, lang) {
-  _inspector.console.log("data", limitInput, lang);
+  // console.log("data", limitInput, lang);
   return new Promise(/*#__PURE__*/function () {
     var _ref2 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee2(resolve, reject) {
       var doctors, _t2;
@@ -663,7 +665,8 @@ var getExtraDoctorInforByIdServices = function getExtraDoctorInforByIdServices(i
             });
           case 2:
             data = _context8.v;
-            _inspector.console.log("data", data);
+            // console.log("data", data);
+
             if (!data) data = {};
             resolve({
               errCode: 0,
@@ -916,7 +919,7 @@ var sendRemedyService = function sendRemedyService(data) {
   // process.stdout.write("Data: " + JSON.stringify(data, null, 2) + "\n");
   return new Promise(/*#__PURE__*/function () {
     var _ref10 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee1(resolve, reject) {
-      var appointment, appointmentData, timeString, pdfBase64, result, history, _t10;
+      var appointment, appointmentData, timeString, doctorName, jobData, _t10;
       return _regenerator().w(function (_context1) {
         while (1) switch (_context1.p = _context1.n) {
           case 0:
@@ -929,7 +932,7 @@ var sendRemedyService = function sendRemedyService(data) {
               errCode: 1,
               errMessage: "Missing required parameters"
             });
-            _context1.n = 7;
+            _context1.n = 5;
             break;
           case 1:
             _context1.n = 2;
@@ -970,77 +973,56 @@ var sendRemedyService = function sendRemedyService(data) {
             _context1.n = 3;
             return appointment.save();
           case 3:
-            // Tạo file PDF đơn thuốc từ danh sách thuốc đã chọn
-            // process.stdout.write(
-            //   "Check appointmentData hehe" +
-            //     JSON.stringify(appointmentData, null, 2) +
-            //     "\n"
-            // );
             timeString = buildTimeBooking(appointmentData);
-            process.stdout.write("timeString " + timeString);
-            _context1.n = 4;
-            return getPrescriptionPDFBase64({
+            doctorName = "".concat(appointmentData.doctorInforData.doctorData.firstName, " ").concat(appointmentData.doctorInforData.doctorData.lastName); // Prepare job data for worker to process asynchronously
+            jobData = _objectSpread(_objectSpread({}, data), {}, {
+              bookingId: appointment.id,
+              amount: data.totalPrice,
               time: timeString,
-              patientName: data.patientInfo.fullName,
-              gender: data.patientInfo.gender,
-              birthDate: data.patientInfo.birthDate,
-              age: data.patientInfo.age,
-              phone: data.patientInfo.phone,
-              email: data.patientInfo.email,
-              address: data.patientInfo.address,
-              city: data.patientInfo.city,
-              weight: data.patientInfo.weight,
-              height: data.patientInfo.height,
-              job: data.patientInfo.occupation,
-              note: data.patientInfo.note,
-              clinicalExam: data.examInfo.clinicalExam,
-              detailExam: data.examInfo.detailExam,
-              diagnosis: data.examInfo.diagnosis,
-              allergies: data.examInfo.allergy,
-              advice: data.examInfo.advice,
-              treatment: data.examInfo.conclusion,
-              medicines: data.prescription,
-              totalPrice: "".concat(data.totalPrice, " VND"),
-              doctorName: "".concat(appointmentData.doctorInforData.doctorData.firstName, " ").concat(appointmentData.doctorInforData.doctorData.lastName)
-            });
+              doctorName: doctorName,
+              pdfData: {
+                time: timeString,
+                patientName: data.patientInfo.fullName,
+                gender: data.patientInfo.gender,
+                birthDate: data.patientInfo.birthDate,
+                age: data.patientInfo.age,
+                phone: data.patientInfo.phone,
+                email: data.patientInfo.email,
+                address: data.patientInfo.address,
+                city: data.patientInfo.city,
+                weight: data.patientInfo.weight,
+                height: data.patientInfo.height,
+                job: data.patientInfo.occupation,
+                note: data.patientInfo.note,
+                clinicalExam: data.examInfo.clinicalExam,
+                detailExam: data.examInfo.detailExam,
+                diagnosis: data.examInfo.diagnosis,
+                allergies: data.examInfo.allergy,
+                advice: data.examInfo.advice,
+                treatment: data.examInfo.conclusion,
+                medicines: data.prescription,
+                totalPrice: "".concat(data.totalPrice, " VND"),
+                doctorName: doctorName
+              }
+            }); // Queue the task to run in the background
+            _context1.n = 4;
+            return _emailServices["default"].sendAttachment(jobData);
           case 4:
-            pdfBase64 = _context1.v;
-            // process.stdout.write("pdfBase64: " + pdfBase64 + "\n");
-            data.imgBase64 = "data:application/pdf;base64,".concat(pdfBase64);
-            data.bookingId = appointment.id;
-            data.amount = data.totalPrice;
-            data.time = timeString;
-            data.doctorName = "".concat(appointmentData.doctorInforData.doctorData.firstName, " ").concat(appointmentData.doctorInforData.doctorData.lastName);
-            //send email remedy kèm file PDF đơn thuốc
-            _context1.n = 5;
-            return _emailServices["default"].sendAttachment(data);
-          case 5:
-            result = _context1.v;
-            _context1.n = 6;
-            return _models["default"].History.create({
-              description: "Hóa đơn khám bệnh",
-              doctorId: data.doctorId,
-              patientId: data.patientId,
-              files: pdfBase64
-            });
-          case 6:
-            history = _context1.v;
-            // process.stdout.write("history: " + history + "\n");
             resolve({
               errCode: 0,
-              errMessage: "Send remedy succeed!"
+              errMessage: "Send remedy queued successfully!"
             });
-          case 7:
-            _context1.n = 9;
+          case 5:
+            _context1.n = 7;
             break;
-          case 8:
-            _context1.p = 8;
+          case 6:
+            _context1.p = 6;
             _t10 = _context1.v;
             reject(_t10);
-          case 9:
+          case 7:
             return _context1.a(2);
         }
-      }, _callee1, null, [[0, 8]]);
+      }, _callee1, null, [[0, 6]]);
     }));
     return function (_x18, _x19) {
       return _ref10.apply(this, arguments);
@@ -1107,10 +1089,10 @@ var postMedicalAppointmentStatus = function postMedicalAppointmentStatus(data) {
     };
   }());
 };
-var sendPayment = function sendPayment(data) {
+var sendPayment = function sendPayment(data, io) {
   return new Promise(/*#__PURE__*/function () {
     var _ref12 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee11(resolve, reject) {
-      var appointment, cashierRecord, dataSend, _t12;
+      var appointment, cashierRecord, onlineUsers, notificationData, cashiers, patient, patientRecord, dataSend, _t12;
       return _regenerator().w(function (_context11) {
         while (1) switch (_context11.p = _context11.n) {
           case 0:
@@ -1123,7 +1105,7 @@ var sendPayment = function sendPayment(data) {
               errCode: 1,
               errMessage: "Missing required parameters"
             });
-            _context11.n = 7;
+            _context11.n = 8;
             break;
           case 1:
             _context11.n = 2;
@@ -1139,7 +1121,7 @@ var sendPayment = function sendPayment(data) {
           case 2:
             appointment = _context11.v;
             if (!appointment) {
-              _context11.n = 5;
+              _context11.n = 6;
               break;
             }
             appointment.statusId = "S5";
@@ -1156,7 +1138,49 @@ var sendPayment = function sendPayment(data) {
             });
           case 4:
             cashierRecord = _context11.v;
+            // Emit PAYMENT_CONFIRMED to cashier and patient
+            if (io) {
+              onlineUsers = getOnlineUsers();
+              notificationData = {
+                bookingId: appointment.id,
+                patientName: data.patientName,
+                amount: data.totalPrice,
+                transactionDateTime: data.date,
+                doctorId: data.doctorId
+              };
+              cashiers = onlineUsers.filter(function (user) {
+                return user.roleId === "R4";
+              });
+              patient = onlineUsers.find(function (user) {
+                return user.id === data.patientId;
+              });
+              cashiers.forEach(function (cashier) {
+                io.to(cashier.socketId).emit("PAYMENT_CONFIRMED", _objectSpread(_objectSpread({}, notificationData), {}, {
+                  role: "cashier"
+                }));
+              });
+              if (patient) {
+                io.to(patient.socketId).emit("PAYMENT_CONFIRMED", _objectSpread(_objectSpread({}, notificationData), {}, {
+                  role: "patient"
+                }));
+              }
+            }
+            _context11.n = 5;
+            return _models["default"].User.findOne({
+              where: {
+                id: data.patientId
+              },
+              attributes: ["fcmToken"]
+            });
           case 5:
+            patientRecord = _context11.v;
+            if (patientRecord && patientRecord.fcmToken) {
+              sendPushNotification(patientRecord.fcmToken, "Thanh toán thành công", "L\u1ECBch h\u1EB9n kh\xE1m c\u1EE7a b\u1EA1n (M\xE3: BOOKING".concat(appointment.id, ") \u0111\xE3 \u0111\u01B0\u1EE3c thanh to\xE1n th\xE0nh c\xF4ng s\u1ED1 ti\u1EC1n ").concat(data.totalPrice, " VN\u0110."), {
+                bookingId: String(appointment.id),
+                status: "paid"
+              });
+            }
+          case 6:
             dataSend = {
               reciverEmail: data.email,
               patientName: data.patientName,
@@ -1164,24 +1188,24 @@ var sendPayment = function sendPayment(data) {
               time: data.date,
               language: "vi"
             };
-            _context11.n = 6;
+            _context11.n = 7;
             return _emailServices["default"].sendEmailPaymentSuccess(dataSend);
-          case 6:
+          case 7:
             resolve({
               errCode: 0,
               errMessage: "Send remedy succeed!"
             });
-          case 7:
-            _context11.n = 9;
-            break;
           case 8:
-            _context11.p = 8;
+            _context11.n = 10;
+            break;
+          case 9:
+            _context11.p = 9;
             _t12 = _context11.v;
             reject(_t12);
-          case 9:
+          case 10:
             return _context11.a(2);
         }
-      }, _callee11, null, [[0, 8]]);
+      }, _callee11, null, [[0, 9]]);
     }));
     return function (_x22, _x23) {
       return _ref12.apply(this, arguments);
@@ -1235,35 +1259,126 @@ var getListGDPR = function getListGDPR() {
     };
   }());
 };
+var updateBookingPaymentStatus = /*#__PURE__*/function () {
+  var _ref14 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee13(bookingId, amount, transactionDateTime, io) {
+    var booking, _patient, dataSend, onlineUsers, notificationData, cashiers, patient, _t14;
+    return _regenerator().w(function (_context13) {
+      while (1) switch (_context13.p = _context13.n) {
+        case 0:
+          _context13.n = 1;
+          return _models["default"].Booking.findOne({
+            where: {
+              id: bookingId
+            },
+            include: [{
+              model: _models["default"].User,
+              as: "patientData",
+              attributes: ["id", "email", "firstName", "fcmToken"]
+            }],
+            raw: false
+          });
+        case 1:
+          booking = _context13.v;
+          if (!booking) {
+            _context13.n = 6;
+            break;
+          }
+          booking.statusId = "S5";
+          _context13.n = 2;
+          return booking.save();
+        case 2:
+          _context13.p = 2;
+          _patient = booking.patientData;
+          dataSend = {
+            reciverEmail: _patient.email,
+            patientName: _patient.firstName,
+            amount: amount,
+            time: transactionDateTime,
+            language: "vi"
+          };
+          _context13.n = 3;
+          return _emailServices["default"].sendEmailPaymentSuccess(dataSend);
+        case 3:
+          _context13.n = 5;
+          break;
+        case 4:
+          _context13.p = 4;
+          _t14 = _context13.v;
+          _inspector.console.error("Gửi email xác nhận thanh toán thất bại:", _t14);
+        case 5:
+          // Emit PAYMENT_CONFIRMED to cashier and patient
+          onlineUsers = getOnlineUsers();
+          notificationData = {
+            bookingId: bookingId,
+            patientName: booking.patientData ? booking.patientData.firstName : "",
+            amount: amount,
+            transactionDateTime: transactionDateTime,
+            doctorId: booking.doctorId
+          };
+          cashiers = onlineUsers.filter(function (user) {
+            return user.roleId === "R4";
+          });
+          patient = onlineUsers.find(function (user) {
+            return user.id === (booking.patientData ? booking.patientData.id : null);
+          });
+          cashiers.forEach(function (cashier) {
+            if (io) {
+              io.to(cashier.socketId).emit("PAYMENT_CONFIRMED", _objectSpread(_objectSpread({}, notificationData), {}, {
+                role: "cashier"
+              }));
+            }
+          });
+          if (patient && io) {
+            io.to(patient.socketId).emit("PAYMENT_CONFIRMED", _objectSpread(_objectSpread({}, notificationData), {}, {
+              role: "patient"
+            }));
+          }
+          if (booking.patientData && booking.patientData.fcmToken) {
+            sendPushNotification(booking.patientData.fcmToken, "Thanh toán thành công", "L\u1ECBch h\u1EB9n kh\xE1m c\u1EE7a b\u1EA1n (M\xE3: BOOKING".concat(bookingId, ") \u0111\xE3 \u0111\u01B0\u1EE3c thanh to\xE1n th\xE0nh c\xF4ng s\u1ED1 ti\u1EC1n ").concat(amount, " VN\u0110."), {
+              bookingId: String(bookingId),
+              status: "paid"
+            });
+          }
+          return _context13.a(2, true);
+        case 6:
+          return _context13.a(2, false);
+      }
+    }, _callee13, null, [[2, 4]]);
+  }));
+  return function updateBookingPaymentStatus(_x26, _x27, _x28, _x29) {
+    return _ref14.apply(this, arguments);
+  };
+}();
+
 // Get all payment and update booking status (Hỗ trợ PayOS và Casso Webhook)
 var postConfirmPayment = function postConfirmPayment(inputData, io) {
   return new Promise(/*#__PURE__*/function () {
-    var _ref14 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee13(resolve, reject) {
-      var paymentData, description, match, bookingId, booking, patient, dataSend, onlineUsers, notificationData, cashiers, _patient, _t14, _t15, _t16;
-      return _regenerator().w(function (_context13) {
-        while (1) switch (_context13.p = _context13.n) {
+    var _ref15 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee14(resolve, reject) {
+      var paymentData, description, match, bookingId, amount, transactionDateTime, success, _t15, _t16;
+      return _regenerator().w(function (_context14) {
+        while (1) switch (_context14.p = _context14.n) {
           case 0:
-            _context13.p = 0;
+            _context14.p = 0;
             paymentData = null; // 1. Nếu là webhook từ PayOS có kèm signature
             if (!(inputData && inputData.signature && payOS)) {
-              _context13.n = 5;
+              _context14.n = 5;
               break;
             }
-            _context13.p = 1;
-            _context13.n = 2;
+            _context14.p = 1;
+            _context14.n = 2;
             return payOS.webhooks.verify(inputData);
           case 2:
-            paymentData = _context13.v;
+            paymentData = _context14.v;
             _inspector.console.log("✅ PayOS webhook verified successfully:", paymentData);
-            _context13.n = 4;
+            _context14.n = 4;
             break;
           case 3:
-            _context13.p = 3;
-            _t14 = _context13.v;
-            _inspector.console.warn("⚠️ PayOS webhook signature verification failed:", _t14.message);
+            _context14.p = 3;
+            _t15 = _context14.v;
+            _inspector.console.warn("⚠️ PayOS webhook signature verification failed:", _t15.message);
             paymentData = inputData.data || inputData;
           case 4:
-            _context13.n = 6;
+            _context14.n = 6;
             break;
           case 5:
             if (inputData && inputData.data) {
@@ -1274,20 +1389,20 @@ var postConfirmPayment = function postConfirmPayment(inputData, io) {
             }
           case 6:
             if (!(paymentData && (paymentData.description === "test" || paymentData.orderCode === 123 || paymentData.isTest))) {
-              _context13.n = 7;
+              _context14.n = 7;
               break;
             }
-            return _context13.a(2, resolve({
+            return _context14.a(2, resolve({
               error: 0,
               errCode: 0,
               message: "PayOS test webhook received successfully"
             }));
           case 7:
             if (paymentData) {
-              _context13.n = 8;
+              _context14.n = 8;
               break;
             }
-            return _context13.a(2, resolve({
+            return _context14.a(2, resolve({
               error: 1,
               errCode: 1,
               message: "No payment data provided"
@@ -1296,190 +1411,241 @@ var postConfirmPayment = function postConfirmPayment(inputData, io) {
             description = paymentData.description || "";
             match = description.match(/BOOKING([a-zA-Z0-9]+)/i);
             if (match) {
-              _context13.n = 9;
+              _context14.n = 9;
               break;
             }
             _inspector.console.warn("Không tìm thấy bookingId trong description:", description);
-            return _context13.a(2, resolve({
+            return _context14.a(2, resolve({
               error: 0,
               errCode: 0,
               message: "Webhook processed (no matching booking pattern)"
             }));
           case 9:
-            bookingId = match[1]; // Tìm booking và cập nhật trạng thái sang S5 (Đã thanh toán)
-            _context13.n = 10;
-            return _models["default"].Booking.findOne({
-              where: {
-                id: bookingId
-              },
-              include: [{
-                model: _models["default"].User,
-                as: "patientData",
-                attributes: ["id", "email", "firstName", "lastName"]
-              }],
-              raw: false
-            });
+            bookingId = match[1];
+            amount = paymentData.amount;
+            transactionDateTime = paymentData.transactionDateTime || new Date().toISOString();
+            _context14.n = 10;
+            return updateBookingPaymentStatus(bookingId, amount, transactionDateTime, io);
           case 10:
-            booking = _context13.v;
-            if (!booking) {
-              _context13.n = 15;
+            success = _context14.v;
+            if (!success) {
+              _context14.n = 11;
               break;
             }
-            booking.statusId = "S5";
-            _context13.n = 11;
-            return booking.save();
-          case 11:
-            _context13.p = 11;
-            patient = booking.patientData;
-            dataSend = {
-              reciverEmail: patient.email,
-              patientName: patient.firstName,
-              amount: paymentData.amount,
-              time: paymentData.transactionDateTime || new Date().toLocaleString("vi-VN"),
-              language: "vi"
-            };
-            _context13.n = 12;
-            return _emailServices["default"].sendEmailPaymentSuccess(dataSend);
-          case 12:
-            _context13.n = 14;
-            break;
-          case 13:
-            _context13.p = 13;
-            _t15 = _context13.v;
-            _inspector.console.error("Gửi email xác nhận thanh toán thất bại:", _t15);
-          case 14:
-            // Emit Socket.IO PAYMENT_CONFIRMED cho Thu ngân (R4) và Bệnh nhân
-            if (io) {
-              try {
-                onlineUsers = getOnlineUsers();
-                notificationData = {
-                  bookingId: bookingId,
-                  patientName: booking.patientData ? booking.patientData.firstName : "",
-                  amount: paymentData.amount,
-                  transactionDateTime: paymentData.transactionDateTime || new Date().toISOString(),
-                  doctorId: booking.doctorId
-                };
-                cashiers = onlineUsers.filter(function (user) {
-                  return user.roleId === "R4";
-                });
-                _patient = onlineUsers.find(function (user) {
-                  return user.id === (booking.patientData ? booking.patientData.id : null);
-                });
-                cashiers.forEach(function (cashier) {
-                  io.to(cashier.socketId).emit("PAYMENT_CONFIRMED", _objectSpread(_objectSpread({}, notificationData), {}, {
-                    role: "cashier"
-                  }));
-                });
-                if (_patient) {
-                  io.to(_patient.socketId).emit("PAYMENT_CONFIRMED", _objectSpread(_objectSpread({}, notificationData), {}, {
-                    role: "patient"
-                  }));
-                }
-              } catch (socketErr) {
-                _inspector.console.error("Socket emit error:", socketErr);
-              }
-            }
-            return _context13.a(2, resolve({
+            return _context14.a(2, resolve({
               error: 0,
               errCode: 0,
               errMessage: "Payment confirmed and booking updated successfully",
               message: "Success"
             }));
-          case 15:
-            return _context13.a(2, resolve({
+          case 11:
+            return _context14.a(2, resolve({
               error: 0,
               errCode: 2,
               errMessage: "Booking ".concat(bookingId, " not found")
             }));
-          case 16:
-            _context13.n = 18;
+          case 12:
+            _context14.n = 14;
             break;
-          case 17:
-            _context13.p = 17;
-            _t16 = _context13.v;
+          case 13:
+            _context14.p = 13;
+            _t16 = _context14.v;
             _inspector.console.error("Lỗi xử lý webhook payment:", _t16);
             reject(_t16);
-          case 18:
-            return _context13.a(2);
-        }
-      }, _callee13, null, [[11, 13], [1, 3], [0, 17]]);
-    }));
-    return function (_x26, _x27) {
-      return _ref14.apply(this, arguments);
-    };
-  }());
-};
-var createPayOSPaymentLink = function createPayOSPaymentLink(data) {
-  return new Promise(/*#__PURE__*/function () {
-    var _ref15 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee14(resolve, reject) {
-      var bookingId, amount, description, orderCode, desc, paymentLinkData, response, _t17;
-      return _regenerator().w(function (_context14) {
-        while (1) switch (_context14.p = _context14.n) {
-          case 0:
-            _context14.p = 0;
-            if (payOS) {
-              _context14.n = 1;
-              break;
-            }
-            return _context14.a(2, resolve({
-              errCode: -1,
-              errMessage: "PayOS chưa được cấu hình Client ID, API Key hoặc Checksum Key trong file .env"
-            }));
-          case 1:
-            bookingId = data.bookingId, amount = data.amount, description = data.description; // PayOS orderCode là số nguyên dương <= 9007199254740991
-            orderCode = Number(String(Date.now()).slice(-6) + Math.floor(Math.random() * 1000));
-            desc = (description || "BOOKING".concat(bookingId || "")).slice(0, 25);
-            paymentLinkData = {
-              orderCode: orderCode,
-              amount: Number(amount) || 10000,
-              description: desc,
-              cancelUrl: "".concat(process.env.URL_REACT || "http://localhost:3000", "/system/manage-payment"),
-              returnUrl: "".concat(process.env.URL_REACT || "http://localhost:3000", "/system/manage-payment")
-            };
-            _context14.n = 2;
-            return payOS.paymentRequests.create(paymentLinkData);
-          case 2:
-            response = _context14.v;
-            resolve({
-              errCode: 0,
-              errMessage: "Tạo link thanh toán PayOS thành công",
-              data: response
-            });
-            _context14.n = 4;
-            break;
-          case 3:
-            _context14.p = 3;
-            _t17 = _context14.v;
-            _inspector.console.error("Lỗi tạo payment link PayOS:", _t17);
-            resolve({
-              errCode: 1,
-              errMessage: _t17.message || "Tạo link thanh toán thất bại"
-            });
-          case 4:
+          case 14:
             return _context14.a(2);
         }
-      }, _callee14, null, [[0, 3]]);
+      }, _callee14, null, [[1, 3], [0, 13]]);
     }));
-    return function (_x28, _x29) {
+    return function (_x30, _x31) {
       return _ref15.apply(this, arguments);
     };
   }());
 };
 
-// Test casso
-// let postConfirmPayment = (inputData) => {
-//   console.log("inputData", inputData);
-//   return new Promise(async (resolve, reject) => {
-//     if (inputData.error === 0) {
-//       const description = inputData.data.description || "";
-//       resolve({
-//         errCode: 0,
-//         errMessage: "Oke",
-//       });
-//     }
-//   });
-// };
+// Create PayOS Payment Link
+var createPayOSPaymentLink = function createPayOSPaymentLink(data) {
+  return new Promise(/*#__PURE__*/function () {
+    var _ref16 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee15(resolve, reject) {
+      var bookingId, amount, description, orderCode, desc, returnUrl, cancelUrl, paymentBody, paymentLinkRes, _t17;
+      return _regenerator().w(function (_context15) {
+        while (1) switch (_context15.p = _context15.n) {
+          case 0:
+            _context15.p = 0;
+            if (payOS) {
+              _context15.n = 1;
+              break;
+            }
+            return _context15.a(2, resolve({
+              errCode: -1,
+              errMessage: "PayOS chưa được cấu hình Client ID, API Key hoặc Checksum Key trong file .env"
+            }));
+          case 1:
+            if (!(!data.bookingId || !data.amount)) {
+              _context15.n = 2;
+              break;
+            }
+            return _context15.a(2, resolve({
+              errCode: 1,
+              errMessage: "Missing required parameters: bookingId or amount"
+            }));
+          case 2:
+            bookingId = data.bookingId, amount = data.amount, description = data.description; // orderCode must be a number <= 9007199254740991
+            orderCode = Number(String(Date.now()).slice(-6) + Math.floor(1000 + Math.random() * 9000));
+            desc = (description || "BOOKING".concat(bookingId)).slice(0, 25);
+            returnUrl = data.returnUrl || "".concat(process.env.URL_REACT || "http://localhost:3000", "/payment-success");
+            cancelUrl = data.cancelUrl || "".concat(process.env.URL_REACT || "http://localhost:3000", "/payment-cancel");
+            paymentBody = {
+              orderCode: orderCode,
+              amount: Number(amount) || 10000,
+              description: desc,
+              cancelUrl: cancelUrl,
+              returnUrl: returnUrl
+            };
+            _context15.n = 3;
+            return payOS.paymentRequests.create(paymentBody);
+          case 3:
+            paymentLinkRes = _context15.v;
+            resolve({
+              errCode: 0,
+              errMessage: "Create payment link succeed",
+              checkoutUrl: paymentLinkRes.checkoutUrl,
+              qrCode: paymentLinkRes.qrCode,
+              data: paymentLinkRes
+            });
+            _context15.n = 5;
+            break;
+          case 4:
+            _context15.p = 4;
+            _t17 = _context15.v;
+            _inspector.console.error("Lỗi tạo link thanh toán PayOS:", _t17);
+            resolve({
+              errCode: 1,
+              errMessage: _t17.message || "Tạo link thanh toán thất bại"
+            });
+          case 5:
+            return _context15.a(2);
+        }
+      }, _callee15, null, [[0, 4]]);
+    }));
+    return function (_x32, _x33) {
+      return _ref16.apply(this, arguments);
+    };
+  }());
+};
 
+// Handle PayOS Webhook
+var handlePayOSWebhook = function handlePayOSWebhook(webhookBody, io) {
+  return new Promise(/*#__PURE__*/function () {
+    var _ref17 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee16(resolve, reject) {
+      var verifiedData, description, match, bookingId, success, _t18, _t19;
+      return _regenerator().w(function (_context16) {
+        while (1) switch (_context16.p = _context16.n) {
+          case 0:
+            _context16.p = 0;
+            if (webhookBody) {
+              _context16.n = 1;
+              break;
+            }
+            resolve({
+              errCode: 1,
+              errMessage: "Missing webhook data"
+            });
+            return _context16.a(2);
+          case 1:
+            if (payOS) {
+              _context16.n = 2;
+              break;
+            }
+            resolve({
+              errCode: -1,
+              errMessage: "PayOS is not initialized"
+            });
+            return _context16.a(2);
+          case 2:
+            verifiedData = null;
+            _context16.p = 3;
+            _context16.n = 4;
+            return payOS.webhooks.verify(webhookBody);
+          case 4:
+            verifiedData = _context16.v;
+            _context16.n = 6;
+            break;
+          case 5:
+            _context16.p = 5;
+            _t18 = _context16.v;
+            _inspector.console.warn("⚠️ PayOS webhook signature verification failed:", _t18.message);
+            verifiedData = webhookBody.data || webhookBody;
+          case 6:
+            if (!(verifiedData && (verifiedData.description === "test" || verifiedData.orderCode === 123 || verifiedData.isTest))) {
+              _context16.n = 7;
+              break;
+            }
+            return _context16.a(2, resolve({
+              error: 0,
+              errCode: 0,
+              message: "PayOS test webhook received successfully"
+            }));
+          case 7:
+            if (!(verifiedData.desc === "success" || verifiedData.success === true || verifiedData.code === "00")) {
+              _context16.n = 10;
+              break;
+            }
+            description = verifiedData.description || "";
+            match = description.match(/BOOKING([a-zA-Z0-9]+)/i);
+            if (match) {
+              _context16.n = 8;
+              break;
+            }
+            resolve({
+              errCode: 2,
+              errMessage: "No bookingId found in description"
+            });
+            return _context16.a(2);
+          case 8:
+            bookingId = match[1];
+            _context16.n = 9;
+            return updateBookingPaymentStatus(bookingId, verifiedData.amount, verifiedData.transactionDateTime || new Date().toISOString(), io);
+          case 9:
+            success = _context16.v;
+            if (success) {
+              resolve({
+                error: 0,
+                errCode: 0,
+                errMessage: "PayOS payment verified and booking updated successfully",
+                message: "Success"
+              });
+            } else {
+              resolve({
+                errCode: 3,
+                errMessage: "Booking not found"
+              });
+            }
+            _context16.n = 11;
+            break;
+          case 10:
+            resolve({
+              errCode: 4,
+              errMessage: "Transaction was not successful"
+            });
+          case 11:
+            _context16.n = 13;
+            break;
+          case 12:
+            _context16.p = 12;
+            _t19 = _context16.v;
+            _inspector.console.error("Lỗi Webhook PayOS:", _t19);
+            reject(_t19);
+          case 13:
+            return _context16.a(2);
+        }
+      }, _callee16, null, [[3, 5], [0, 12]]);
+    }));
+    return function (_x34, _x35) {
+      return _ref17.apply(this, arguments);
+    };
+  }());
+};
 module.exports = {
   getTopDoctorHomeServices: getTopDoctorHomeServices,
   getAllDoctorServices: getAllDoctorServices,
@@ -1495,5 +1661,7 @@ module.exports = {
   postConfirmPayment: postConfirmPayment,
   postMedicalAppointmentStatus: postMedicalAppointmentStatus,
   sendPayment: sendPayment,
-  createPayOSPaymentLink: createPayOSPaymentLink
+  createPayOSPaymentLink: createPayOSPaymentLink,
+  handlePayOSWebhook: handlePayOSWebhook,
+  getPrescriptionPDFBase64: getPrescriptionPDFBase64
 };

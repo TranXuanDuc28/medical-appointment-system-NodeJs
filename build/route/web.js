@@ -13,6 +13,8 @@ var _packageController = _interopRequireDefault(require("../controllers/packageC
 var _facilityController = _interopRequireDefault(require("../controllers/facilityController"));
 var _handbookController = _interopRequireDefault(require("../controllers/handbookController"));
 var _questionController = _interopRequireDefault(require("../controllers/questionController"));
+var _JWTaction = require("../middleware/JWTaction");
+var _redis = require("../utils/redis");
 function _interopRequireDefault(e) { return e && e.__esModule ? e : { "default": e }; }
 // import
 
@@ -57,34 +59,52 @@ var initWebRoutes = function initWebRoutes(app) {
   // API routes
   router.post("/api/register", _userController["default"].handleRegister);
   router.post("/api/login", _userController["default"].handleLogin);
+  router.post("/api/logout", _userController["default"].handleLogout);
+  router.post("/api/refresh-token", _userController["default"].handleRefreshToken);
+  router.post("/api/save-fcm-token", _userController["default"].saveFCMToken);
   router.get("/api/get_all_users", _userController["default"].handleGetAllUsers);
   router.post("/api/create_new_users", _userController["default"].handleCreateNewUsers);
   router["delete"]("/api/delete_users", _userController["default"].handleDeleteUsers);
   router.put("/api/edit_users", _userController["default"].handleEditUsers);
   router.get("/api/allcode", _userController["default"].getAllCode);
-  router.get("/api/top-doctor-home", _doctorControllers["default"].getTopDoctorHome);
-  router.get("/api/get_all_doctor", _doctorControllers["default"].getAllDoctor);
-  router.post("/api/save_detail_doctor", _doctorControllers["default"].postInforDoctor);
-  router.get("/api/get_detail_doctor_by_id", _doctorControllers["default"].getDetailDoctorById);
-  router.post("/api/bulk_create_schedule", _doctorControllers["default"].getBulkCreateSchedule);
-  router.get("/api/get_schedule_doctor_by_date", _doctorControllers["default"].getScheduleDoctorByDate);
-  router.get("/api/get-extra-doctor-by-id", _doctorControllers["default"].getExtraDoctorInforById);
-  router.get("/api/get-profile-doctor-by-id", _doctorControllers["default"].getProfileDoctorById);
+  router.get("/api/top-doctor-home", (0, _redis.cacheMiddleware)(300), _doctorControllers["default"].getTopDoctorHome);
+  router.get("/api/get_all_doctor", (0, _redis.cacheMiddleware)(300), _doctorControllers["default"].getAllDoctor);
+  router.post("/api/save_detail_doctor", function (req, res, next) {
+    (0, _redis.invalidateCache)(["/api/top-doctor-home", "/api/get_all_doctor", "/api/get_detail_doctor_by_id", "/api/get-extra-doctor-by-id", "/api/get-profile-doctor-by-id"]);
+    next();
+  }, _doctorControllers["default"].postInforDoctor);
+  router.get("/api/get_detail_doctor_by_id", (0, _redis.cacheMiddleware)(300), _doctorControllers["default"].getDetailDoctorById);
+  router.post("/api/bulk_create_schedule", function (req, res, next) {
+    (0, _redis.invalidateCache)(["/api/get_schedule_doctor_by_date"]);
+    next();
+  }, _doctorControllers["default"].getBulkCreateSchedule);
+  router.get("/api/get_schedule_doctor_by_date", (0, _redis.cacheMiddleware)(60), _doctorControllers["default"].getScheduleDoctorByDate);
+  router.get("/api/get-extra-doctor-by-id", (0, _redis.cacheMiddleware)(300), _doctorControllers["default"].getExtraDoctorInforById);
+  router.get("/api/get-profile-doctor-by-id", (0, _redis.cacheMiddleware)(300), _doctorControllers["default"].getProfileDoctorById);
   router.post("/api/patient-book-appointment", _patientController["default"].postBookAppointment);
   router.post("/api/verify-book-appointment", _patientController["default"].postVerifyBookAppointment);
   // HandBook routes
-  router.post("/api/create-new-handbook", _handbookController["default"].createHandBook);
-  router.get("/api/get-handbook", _handbookController["default"].getAllHandBook);
-  router.get("/api/get-detail-handbook-by-id", _handbookController["default"].getDetailHandBookById);
-  router.get("/api/get-related-handbooks", _handbookController["default"].getRelatedHandBooks);
+  router.post("/api/create-new-handbook", function (req, res, next) {
+    (0, _redis.invalidateCache)(["/api/get-handbook", "/api/get-detail-handbook-by-id", "/api/get-related-handbooks"]);
+    next();
+  }, _handbookController["default"].createHandBook);
+  router.get("/api/get-handbook", (0, _redis.cacheMiddleware)(600), _handbookController["default"].getAllHandBook);
+  router.get("/api/get-detail-handbook-by-id", (0, _redis.cacheMiddleware)(600), _handbookController["default"].getDetailHandBookById);
+  router.get("/api/get-related-handbooks", (0, _redis.cacheMiddleware)(600), _handbookController["default"].getRelatedHandBooks);
   // Specialty routes
-  router.post("/api/create-new-specialty", _specialtyController["default"].createSpecialty);
-  router.get("/api/get-specialty", _specialtyController["default"].getAllSpecialty);
-  router.get("/api/get-detail-specialty-by-id", _specialtyController["default"].getDetailSpecialtyById);
+  router.post("/api/create-new-specialty", function (req, res, next) {
+    (0, _redis.invalidateCache)(["/api/get-specialty", "/api/get-detail-specialty-by-id"]);
+    next();
+  }, _specialtyController["default"].createSpecialty);
+  router.get("/api/get-specialty", (0, _redis.cacheMiddleware)(600), _specialtyController["default"].getAllSpecialty);
+  router.get("/api/get-detail-specialty-by-id", (0, _redis.cacheMiddleware)(600), _specialtyController["default"].getDetailSpecialtyById);
   // Clinic routes
-  router.post("/api/create-new-clinic", _clinicController["default"].createClinic);
-  router.get("/api/get-clinic", _clinicController["default"].getAllClinic);
-  router.get("/api/get-detail-clinic-by-id", _clinicController["default"].getDetailClinicById);
+  router.post("/api/create-new-clinic", function (req, res, next) {
+    (0, _redis.invalidateCache)(["/api/get-clinic", "/api/get-detail-clinic-by-id"]);
+    next();
+  }, _clinicController["default"].createClinic);
+  router.get("/api/get-clinic", (0, _redis.cacheMiddleware)(600), _clinicController["default"].getAllClinic);
+  router.get("/api/get-detail-clinic-by-id", (0, _redis.cacheMiddleware)(600), _clinicController["default"].getDetailClinicById);
   // Patient routes
   router.get("/api/get-list-patient-for-doctor", _doctorControllers["default"].getListPatientForDoctor);
   router.post("/api/send-remedy", _doctorControllers["default"].sendRemedy);
@@ -95,7 +115,7 @@ var initWebRoutes = function initWebRoutes(app) {
   router.get("/api/get-medicines", _medicineController["default"].getAllMedicine);
 
   // PayOS & Casso webhook: cập nhật trạng thái booking khi nhận được giao dịch thanh toán
-  router.post("/api/payos/webhook", _doctorControllers["default"].postConfirmPayment);
+  router.post("/api/payos/webhook", _doctorControllers["default"].handlePayOSWebhook);
   router.post("/api/payos/create-payment-link", _doctorControllers["default"].createPayOSPaymentLink);
   router.post("/api/casso/webhook", _doctorControllers["default"].postConfirmPayment);
   router.post("/api/send-payment", _doctorControllers["default"].sendPayment);
@@ -124,26 +144,45 @@ var initWebRoutes = function initWebRoutes(app) {
   router.post("/api/login-patient-chat", _userController["default"].handlePatientChatLogin);
 
   // Package routes
-  router.get("/api/packages/all", _packageController["default"].getAllPackages);
-  router.get("/api/packages/featured", _packageController["default"].getFeaturedPackages);
-  router.get("/api/packages/filter-options", _packageController["default"].getFilterOptions);
-  router.get("/api/packages/search", _packageController["default"].searchPackages);
-  router.get("/api/packages/:id", _packageController["default"].getPackageById);
-  router.post("/api/packages/create", _packageController["default"].createPackage);
-  router.put("/api/packages/update/:id", _packageController["default"].updatePackage);
-  router["delete"]("/api/packages/delete/:id", _packageController["default"].deletePackage);
+  router.get("/api/packages/all", (0, _redis.cacheMiddleware)(300), _packageController["default"].getAllPackages);
+  router.get("/api/packages/featured", (0, _redis.cacheMiddleware)(300), _packageController["default"].getFeaturedPackages);
+  router.get("/api/packages/filter-options", (0, _redis.cacheMiddleware)(600), _packageController["default"].getFilterOptions);
+  router.get("/api/packages/search", (0, _redis.cacheMiddleware)(60), _packageController["default"].searchPackages);
+  router.get("/api/packages/:id", (0, _redis.cacheMiddleware)(300), _packageController["default"].getPackageById);
+  router.post("/api/packages/create", function (req, res, next) {
+    (0, _redis.invalidateCache)(["/api/packages/all", "/api/packages/featured", "/api/packages/filter-options"]);
+    next();
+  }, _packageController["default"].createPackage);
+  router.put("/api/packages/update/:id", function (req, res, next) {
+    (0, _redis.invalidateCache)(["/api/packages/all", "/api/packages/featured", "/api/packages/".concat(req.params.id)]);
+    next();
+  }, _packageController["default"].updatePackage);
+  router["delete"]("/api/packages/delete/:id", function (req, res, next) {
+    (0, _redis.invalidateCache)(["/api/packages/all", "/api/packages/featured", "/api/packages/".concat(req.params.id)]);
+    next();
+  }, _packageController["default"].deletePackage);
 
   // Facility routes
-  router.get("/api/facilities/all", _facilityController["default"].getAllFacilities);
-  router.get("/api/facilities/featured", _facilityController["default"].getFeaturedFacilities);
-  router.get("/api/facilities/filter-options", _facilityController["default"].getFilterOptions);
-  router.get("/api/facilities/search", _facilityController["default"].searchFacilities);
-  router.get("/api/facilities/:id", _facilityController["default"].getFacilityById);
-  router.post("/api/facilities/create", _facilityController["default"].createFacility);
-  router.put("/api/facilities/update/:id", _facilityController["default"].updateFacility);
-  router["delete"]("/api/facilities/delete/:id", _facilityController["default"].deleteFacility);
+  router.get("/api/facilities/all", (0, _redis.cacheMiddleware)(300), _facilityController["default"].getAllFacilities);
+  router.get("/api/facilities/featured", (0, _redis.cacheMiddleware)(300), _facilityController["default"].getFeaturedFacilities);
+  router.get("/api/facilities/filter-options", (0, _redis.cacheMiddleware)(600), _facilityController["default"].getFilterOptions);
+  router.get("/api/facilities/search", (0, _redis.cacheMiddleware)(60), _facilityController["default"].searchFacilities);
+  router.get("/api/facilities/:id", (0, _redis.cacheMiddleware)(300), _facilityController["default"].getFacilityById);
+  router.post("/api/facilities/create", function (req, res, next) {
+    (0, _redis.invalidateCache)(["/api/facilities/all", "/api/facilities/featured", "/api/facilities/filter-options"]);
+    next();
+  }, _facilityController["default"].createFacility);
+  router.put("/api/facilities/update/:id", function (req, res, next) {
+    (0, _redis.invalidateCache)(["/api/facilities/all", "/api/facilities/featured", "/api/facilities/".concat(req.params.id)]);
+    next();
+  }, _facilityController["default"].updateFacility);
+  router["delete"]("/api/facilities/delete/:id", function (req, res, next) {
+    (0, _redis.invalidateCache)(["/api/facilities/all", "/api/facilities/featured", "/api/facilities/".concat(req.params.id)]);
+    next();
+  }, _facilityController["default"].deleteFacility);
   // Appointment history routes
   router.get("/api/get-patient-appointments", _patientController["default"].getPatientAppointments);
+  router.get("/api/get-patient-history", _patientController["default"].getPatientHistory);
 
   // Health assessment routes
   router.get("/api/get_all_questions", _questionController["default"].getAllQuestions);

@@ -63,10 +63,10 @@ let getBulkCreateSchedule = async (req, res) => {
 };
 let getScheduleDoctorByDate = async (req, res) => {
   try {
-    let message = await doctorServices.getScheduleDoctorByDateServices(
-      req.query.doctorId,
-      req.query.date
-    );
+    let message = await doctorServices.getScheduleDoctorByDateServices({
+      doctorId: req.query.doctorId,
+      date: req.query.date,
+    });
     return res.status(200).json(message);
   } catch (error) {
     return res.status(200).json({
@@ -143,6 +143,15 @@ let getListGDPR = async (req, res) => {
 };
 let postConfirmPayment = async (req, res) => {
   try {
+    const webhookToken = req.headers["secure-token-header"];
+    const expectedToken = process.env.CASSO_WEBHOOK_KEY;
+    if (!webhookToken || webhookToken !== expectedToken) {
+      return res.status(401).json({
+        errCode: -1,
+        errMessage: "Không có quyền truy cập webhook!",
+      });
+    }
+
     let message = await doctorServices.postConfirmPayment(
       req.body,
       req.app.get("socketio")
@@ -168,7 +177,10 @@ let postMedicalAppointmentStatus = async (req, res) => {
 };
 let sendPayment = async (req, res) => {
   try {
-    let message = await doctorServices.sendPayment(req.body);
+    let message = await doctorServices.sendPayment(
+      req.body,
+      req.app.get("socketio")
+    );
     return res.status(200).json(message);
   } catch (error) {
     return res.status(200).json({
@@ -180,6 +192,20 @@ let sendPayment = async (req, res) => {
 let createPayOSPaymentLink = async (req, res) => {
   try {
     let message = await doctorServices.createPayOSPaymentLink(req.body);
+    return res.status(200).json(message);
+  } catch (error) {
+    return res.status(200).json({
+      errCode: -1,
+      errMessage: "Lỗi từ server!",
+    });
+  }
+};
+let handlePayOSWebhook = async (req, res) => {
+  try {
+    let message = await doctorServices.handlePayOSWebhook(
+      req.body,
+      req.app.get("socketio")
+    );
     return res.status(200).json(message);
   } catch (error) {
     return res.status(200).json({
@@ -205,4 +231,5 @@ module.exports = {
   postMedicalAppointmentStatus: postMedicalAppointmentStatus,
   sendPayment: sendPayment,
   createPayOSPaymentLink: createPayOSPaymentLink,
+  handlePayOSWebhook: handlePayOSWebhook,
 };

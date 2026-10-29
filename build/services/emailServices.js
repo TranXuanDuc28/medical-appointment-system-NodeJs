@@ -7,7 +7,8 @@ function _regeneratorDefine2(e, r, n, t) { var i = Object.defineProperty; try { 
 function asyncGeneratorStep(n, t, e, r, o, a, c) { try { var i = n[a](c), u = i.value; } catch (n) { return void e(n); } i.done ? t(u) : Promise.resolve(u).then(r, o); }
 function _asyncToGenerator(n) { return function () { var t = this, e = arguments; return new Promise(function (r, o) { var a = n.apply(t, e); function _next(n) { asyncGeneratorStep(a, r, o, _next, _throw, "next", n); } function _throw(n) { asyncGeneratorStep(a, r, o, _next, _throw, "throw", n); } _next(void 0); }); }; }
 require("dotenv").config();
-var sendSimpleEmail = /*#__PURE__*/function () {
+// Gửi email xác nhận đặt lịch khám (Gốc - Chạy trực tiếp)
+var sendSimpleEmailDirect = /*#__PURE__*/function () {
   var _ref = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee(dataSend) {
     var transporter, info, _t;
     return _regenerator().w(function (_context) {
@@ -25,7 +26,7 @@ var sendSimpleEmail = /*#__PURE__*/function () {
             tls: {
               rejectUnauthorized: false // Allow self-signed certificates
             }
-          }); // console.log("transporter", transporter);
+          });
           _context.p = 1;
           _context.n = 2;
           return transporter.sendMail({
@@ -39,18 +40,20 @@ var sendSimpleEmail = /*#__PURE__*/function () {
           });
         case 2:
           info = _context.v;
+          console.log("✅ Gửi email xác nhận thành công:", info.messageId);
           _context.n = 4;
           break;
         case 3:
           _context.p = 3;
           _t = _context.v;
-          console.error("❌ Gửi thất bại", _t);
+          console.error("❌ Gửi email xác nhận thất bại:", _t);
+          throw _t;
         case 4:
           return _context.a(2);
       }
     }, _callee, null, [[1, 3]]);
   }));
-  return function sendSimpleEmail(_x) {
+  return function sendSimpleEmailDirect(_x) {
     return _ref.apply(this, arguments);
   };
 }();
@@ -66,97 +69,30 @@ var getBodyHTMLEmail = function getBodyHTMLEmail(dataSend) {
 };
 var getBodyHTMLEmailRemedy = function getBodyHTMLEmailRemedy(dataSend) {
   var result = "";
-  var BANK_ID = "mbbank";
-  var ACCOUNT_NO = "0367462316";
-  var TEMPLATE = "compact2";
-  var AMOUNT = dataSend.amount ? dataSend.amount : "5000"; // Default amount if not provided
-  var DESCRIPTION = dataSend.bookingId ? encodeURIComponent("BOOKING".concat(dataSend.bookingId)) : encodeURIComponent("BOOKING280403");
-  var ACCOUNT_NAME = encodeURIComponent("Thanh toán dịch vụ");
-  var qrImage = "\n    <div style=\"margin-top: 20px;\">\n      <img src=\"https://img.vietqr.io/image/".concat(BANK_ID, "-").concat(ACCOUNT_NO, "-").concat(TEMPLATE, ".jpg?amount=").concat(AMOUNT, "&addInfo=").concat(DESCRIPTION, "&accountName=").concat(ACCOUNT_NAME, "\" \n      alt=\"QR Code thanh to\xE1n\" style=\"width: 200px; height: auto;\" />\n    </div>\n  ");
-  if (dataSend.language === "vi") {
-    result = "\n      <h3>Xin ch\xE0o ".concat(dataSend.patientInfo.fullName, "!</h3>\n      <p>B\u1EA1n nh\u1EADn \u0111\u01B0\u1EE3c email n\xE0y v\xEC \u0111\xE3 \u0111\u1EB7t l\u1ECBch kh\xE1m b\u1EC7nh tr\xEAn Booking Care.</p>\n      <p><b>Th\xF4ng tin \u0111\u01A1n thu\u1ED1c: (Nh\u1EA5n v\xE0o file \u0111\xEDnh k\xE8m \u0111\u1EC3 xem)</b></p>\n      <div><b>Th\u1EDDi gian:</b> ").concat(dataSend.time, "</div>\n      <div><b>B\xE1c s\u0129:</b> ").concat(dataSend.doctorName, "</div>\n      <p>N\u1EBFu c\xE1c th\xF4ng tin tr\xEAn l\xE0 ch\xEDnh x\xE1c, vui l\xF2ng qu\xE9t m\xE3 QR b\xEAn d\u01B0\u1EDBi \u0111\u1EC3 thanh to\xE1n:</p>\n      ").concat(qrImage, "\n      <div>Xin ch\xE2n th\xE0nh c\u1EA3m \u01A1n!</div>\n    ");
+  var paymentSection = "";
+  if (dataSend.payosUrl) {
+    // Luồng PayOS: Hiển thị nút bấm thanh toán trực tuyến đẹp mắt
+    paymentSection = "\n      <div style=\"margin: 20px 0;\">\n        <p><b>Vui l\xF2ng nh\u1EA5n v\xE0o n\xFAt b\xEAn d\u01B0\u1EDBi \u0111\u1EC3 ti\u1EBFn h\xE0nh thanh to\xE1n tr\u1EF1c tuy\u1EBFn (h\u1ED7 tr\u1EE3 chuy\u1EC3n kho\u1EA3n nhanh VietQR ho\u1EB7c th\u1EBB ng\xE2n h\xE0ng):</b></p>\n        <a href=\"".concat(dataSend.payosUrl, "\" target=\"_blank\" \n           style=\"background: linear-gradient(135deg, #0070f3 0%, #00a4ff 100%); color: white; padding: 12px 24px; text-decoration: none; font-weight: bold; border-radius: 6px; display: inline-block; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); font-family: sans-serif;\">\n          Thanh To\xE1n H\xF3a \u0110\u01A1n (PayOS)\n        </a>\n      </div>\n    ");
   } else {
-    // Trường hợp ngôn ngữ khác (ví dụ English)
-    result = "\n      <h3>Dear ".concat(dataSend.patientInfo.fullName, "!</h3>\n      <p>You received this email because you booked a medical appointment on Booking Care.</p>\n      <p><b>Prescription Information:</b></p>\n      <div><b>Time:</b> ").concat(dataSend.time, "</div>\n      <div><b>Doctor:</b> ").concat(dataSend.doctorName, "</div>\n      <p>If the above information is correct, please scan code QR below to proceed with payment:</p>\n      ").concat(qrImage, "\n      <div>Thank you very much!</div>\n    ");
+    // Luồng Casso cũ: Đã tạm dừng hoạt động
+    paymentSection = "\n      <div style=\"margin-top: 20px; color: #721c24; background-color: #f8d7da; border: 1px solid #f5c6cb; padding: 12px; border-radius: 6px; font-family: sans-serif;\">\n        <p><b>Th\xF4ng b\xE1o:</b> C\u1ED5ng thanh to\xE1n chuy\u1EC3n kho\u1EA3n th\u1EE7 c\xF4ng (Casso) \u0111ang \u0111\u01B0\u1EE3c b\u1EA3o tr\xEC. Vui l\xF2ng li\xEAn h\u1EC7 ph\xF2ng kh\xE1m \u0111\u1EC3 bi\u1EBFt th\xEAm chi ti\u1EBFt.</p>\n      </div>\n    ";
+  }
+  if (dataSend.language === "vi") {
+    result = "\n      <h3>Xin ch\xE0o ".concat(dataSend.patientInfo.fullName, "!</h3>\n      <p>B\u1EA1n nh\u1EADn \u0111\u01B0\u1EE3c email n\xE0y v\xEC \u0111\xE3 \u0111\u1EB7t l\u1ECBch kh\xE1m b\u1EC7nh tr\xEAn Booking Care.</p>\n      <p><b>Th\xF4ng tin \u0111\u01A1n thu\u1ED1c: (Nh\u1EA5n v\xE0o file \u0111\xEDnh k\xE8m \u0111\u1EC3 xem)</b></p>\n      <div><b>Th\u1EDDi gian:</b> ").concat(dataSend.time, "</div>\n      <div><b>B\xE1c s\u0129:</b> ").concat(dataSend.doctorName, "</div>\n      ").concat(paymentSection, "\n      <div style=\"margin-top: 15px;\">Xin ch\xE2n th\xE0nh c\u1EA3m \u01A1n!</div>\n    ");
+  } else {
+    result = "\n      <h3>Dear ".concat(dataSend.patientInfo.fullName, "!</h3>\n      <p>You received this email because you booked a medical appointment on Booking Care.</p>\n      <p><b>Prescription Information: (Click attached file to view)</b></p>\n      <div><b>Time:</b> ").concat(dataSend.time, "</div>\n      <div><b>Doctor:</b> ").concat(dataSend.doctorName, "</div>\n      ").concat(dataSend.payosUrl ? "\n        <div style=\"margin: 20px 0;\">\n          <p><b>Please click the button below to pay online (supports fast VietQR transfer or local bank card):</b></p>\n          <a href=\"".concat(dataSend.payosUrl, "\" target=\"_blank\" \n             style=\"background: linear-gradient(135deg, #0070f3 0%, #00a4ff 100%); color: white; padding: 12px 24px; text-decoration: none; font-weight: bold; border-radius: 6px; display: inline-block; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); font-family: sans-serif;\">\n            Pay Invoice (PayOS)\n          </a>\n        </div>\n      ") : "\n        <div style=\"margin-top: 20px; color: #721c24; background-color: #f8d7da; border: 1px solid #f5c6cb; padding: 12px; border-radius: 6px; font-family: sans-serif;\">\n          <p><b>Notice:</b> The manual bank transfer (Casso) is currently undergoing maintenance. Please contact the clinic for more details.</p>\n        </div>\n      ", "\n      <div style=\"margin-top: 15px;\">Thank you very much!</div>\n    ");
   }
   return result;
 };
-var sendAttachment = /*#__PURE__*/function () {
-  var _ref2 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee3(dataSend) {
-    return _regenerator().w(function (_context3) {
-      while (1) switch (_context3.n) {
+
+// Gửi email kèm đơn thuốc (Gốc - Chạy trực tiếp)
+var sendAttachmentDirect = /*#__PURE__*/function () {
+  var _ref2 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee2(dataSend) {
+    var transporter, info, _t2;
+    return _regenerator().w(function (_context2) {
+      while (1) switch (_context2.p = _context2.n) {
         case 0:
-          return _context3.a(2, new Promise(/*#__PURE__*/function () {
-            var _ref3 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee2(resolve, reject) {
-              var transporter, info, _t2;
-              return _regenerator().w(function (_context2) {
-                while (1) switch (_context2.p = _context2.n) {
-                  case 0:
-                    _context2.p = 0;
-                    transporter = _nodemailer["default"].createTransport({
-                      host: "smtp.gmail.com",
-                      port: 587,
-                      secure: false,
-                      // Use `true` for port 465, `false` for all other ports
-                      auth: {
-                        user: process.env.EMAIL_APP,
-                        pass: process.env.EMAIL_APP_PASSWORD
-                      },
-                      tls: {
-                        rejectUnauthorized: false // Allow self-signed certificates
-                      }
-                    });
-                    _context2.n = 1;
-                    return transporter.sendMail({
-                      from: '"Trần Xuân Đức" <ductranxuan28@gmail.com>',
-                      // sender address
-                      to: dataSend.patientInfo.email,
-                      // list of receivers
-                      subject: "Kết quả đặt lịch khám bệnh",
-                      // Subject line
-                      html: getBodyHTMLEmailRemedy(dataSend),
-                      attachments: [{
-                        filename: dataSend.imgBase64 && dataSend.imgBase64.startsWith("data:application/pdf") ? "don-thuoc.pdf" : "",
-                        content: dataSend.imgBase64 ? dataSend.imgBase64.split("base64,")[1] : "",
-                        encoding: "base64"
-                      }]
-                    });
-                  case 1:
-                    info = _context2.v;
-                    resolve({
-                      errCode: 0,
-                      errMessage: "Send remedy success!"
-                    });
-                    // console.log("✅ Gửi thành công", info);
-                    _context2.n = 3;
-                    break;
-                  case 2:
-                    _context2.p = 2;
-                    _t2 = _context2.v;
-                    console.error("❌ Gửi thất bại", _t2);
-                    reject(_t2);
-                  case 3:
-                    return _context2.a(2);
-                }
-              }, _callee2, null, [[0, 2]]);
-            }));
-            return function (_x3, _x4) {
-              return _ref3.apply(this, arguments);
-            };
-          }()));
-      }
-    }, _callee3);
-  }));
-  return function sendAttachment(_x2) {
-    return _ref2.apply(this, arguments);
-  };
-}();
-var sendEmailPaymentSuccess = /*#__PURE__*/function () {
-  var _ref4 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee4(dataSend) {
-    var transporter, info, _t3;
-    return _regenerator().w(function (_context4) {
-      while (1) switch (_context4.p = _context4.n) {
-        case 0:
+          _context2.p = 0;
           transporter = _nodemailer["default"].createTransport({
             host: "smtp.gmail.com",
             port: 587,
@@ -169,44 +105,163 @@ var sendEmailPaymentSuccess = /*#__PURE__*/function () {
             tls: {
               rejectUnauthorized: false // Allow self-signed certificates
             }
-          }); // console.log("transporter", transporter);
-          _context4.p = 1;
-          _context4.n = 2;
+          });
+          _context2.n = 1;
           return transporter.sendMail({
             from: '"Trần Xuân Đức" <ductranxuan28@gmail.com>',
             // sender address
-            to: dataSend.reciverEmail,
+            to: dataSend.patientInfo.email,
             // list of receivers
-            subject: "Thông tin giao dịch!",
+            subject: "Kết quả đặt lịch khám bệnh và Hóa đơn",
             // Subject line
+            html: getBodyHTMLEmailRemedy(dataSend),
+            attachments: [{
+              filename: dataSend.imgBase64 && dataSend.imgBase64.startsWith("data:application/pdf") ? "don-thuoc.pdf" : "don-thuoc.png",
+              content: dataSend.imgBase64 ? dataSend.imgBase64.split("base64,")[1] : "",
+              encoding: "base64"
+            }]
+          });
+        case 1:
+          info = _context2.v;
+          console.log("✅ Gửi email đơn thuốc kèm hóa đơn thành công:", info.messageId);
+          return _context2.a(2, {
+            errCode: 0,
+            errMessage: "Send remedy success!"
+          });
+        case 2:
+          _context2.p = 2;
+          _t2 = _context2.v;
+          console.error("❌ Gửi email đơn thuốc thất bại:", _t2);
+          throw _t2;
+        case 3:
+          return _context2.a(2);
+      }
+    }, _callee2, null, [[0, 2]]);
+  }));
+  return function sendAttachmentDirect(_x2) {
+    return _ref2.apply(this, arguments);
+  };
+}();
+
+// Gửi email thông báo thanh toán thành công (Gốc - Chạy trực tiếp)
+var sendEmailPaymentSuccessDirect = /*#__PURE__*/function () {
+  var _ref3 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee3(dataSend) {
+    var transporter, info, _t3;
+    return _regenerator().w(function (_context3) {
+      while (1) switch (_context3.p = _context3.n) {
+        case 0:
+          transporter = _nodemailer["default"].createTransport({
+            host: "smtp.gmail.com",
+            port: 587,
+            secure: false,
+            auth: {
+              user: process.env.EMAIL_APP,
+              pass: process.env.EMAIL_APP_PASSWORD
+            },
+            tls: {
+              rejectUnauthorized: false
+            }
+          });
+          _context3.p = 1;
+          _context3.n = 2;
+          return transporter.sendMail({
+            from: '"Trần Xuân Đức" <ductranxuan28@gmail.com>',
+            to: dataSend.reciverEmail,
+            subject: "Thông báo: Giao dịch thanh toán thành công!",
             html: getBodyHTMLEmailPayment(dataSend)
           });
         case 2:
-          info = _context4.v;
-          _context4.n = 4;
+          info = _context3.v;
+          console.log("✅ Gửi email thanh toán thành công:", info.messageId);
+          _context3.n = 4;
           break;
         case 3:
-          _context4.p = 3;
-          _t3 = _context4.v;
-          console.error("❌ Gửi thất bại", _t3);
+          _context3.p = 3;
+          _t3 = _context3.v;
+          console.error("❌ Gửi email thanh toán thất bại:", _t3);
+          throw _t3;
         case 4:
-          return _context4.a(2);
+          return _context3.a(2);
       }
-    }, _callee4, null, [[1, 3]]);
+    }, _callee3, null, [[1, 3]]);
   }));
-  return function sendEmailPaymentSuccess(_x5) {
-    return _ref4.apply(this, arguments);
+  return function sendEmailPaymentSuccessDirect(_x3) {
+    return _ref3.apply(this, arguments);
   };
 }();
 var getBodyHTMLEmailPayment = function getBodyHTMLEmailPayment(dataSend) {
   var result = "";
   if (dataSend.language === "vi") {
-    result = "\n    <h3>Xin ch\xE0o ".concat(dataSend.patientName, "!</h3>\n    <p>B\u1EA1n \u0111\xE3 thanh to\xE1n th\xE0nh c\xF4ng v\u1EC1 ch\xED ph\xED t\u1EA1i Booking care</p>\n    <p>Th\xF4ng tin thanh to\xE1n</p>\n    <div><b>Th\u1EDDi gian:").concat(dataSend.time, "</b>\n    </div>\n     <div><b>T\u1ED5ng chi ph\xED \u0111\xE3 thanh to\xE1n:").concat(dataSend.amount, "</b>\n    </div>\n    <div> Xin ch\xE2n th\xE0nh c\u1EA3m \u01A1n!</div>\n    ");
+    result = "\n    <h3>Xin ch\xE0o ".concat(dataSend.patientName, "!</h3>\n    <p>B\u1EA1n \u0111\xE3 thanh to\xE1n th\xE0nh c\xF4ng v\u1EC1 ch\xED ph\xED t\u1EA1i Booking care</p>\n    <p>Th\xF4ng tin thanh to\xE1n</p>\n    <div><b>Th\u1EDDi gian: ").concat(dataSend.time, "</b>\n    </div>\n     <div><b>T\u1ED5ng chi ph\xED \u0111\xE3 thanh to\xE1n: ").concat(dataSend.amount, " VND</b>\n    </div>\n    <div> Xin ch\xE2n th\xE0nh c\u1EA3m \u01A1n!</div>\n    ");
   }
   return result;
 };
+
+// ---------------- WRAPPERS GỬI QUA TASK QUEUE ----------------
+
+var sendSimpleEmail = /*#__PURE__*/function () {
+  var _ref4 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee4(dataSend) {
+    var _require, addEmailJob;
+    return _regenerator().w(function (_context4) {
+      while (1) switch (_context4.n) {
+        case 0:
+          _require = require("../utils/queue"), addEmailJob = _require.addEmailJob;
+          _context4.n = 1;
+          return addEmailJob("sendSimpleEmail", dataSend);
+        case 1:
+          return _context4.a(2);
+      }
+    }, _callee4);
+  }));
+  return function sendSimpleEmail(_x4) {
+    return _ref4.apply(this, arguments);
+  };
+}();
+var sendAttachment = /*#__PURE__*/function () {
+  var _ref5 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee5(dataSend) {
+    var _require2, addEmailJob;
+    return _regenerator().w(function (_context5) {
+      while (1) switch (_context5.n) {
+        case 0:
+          _require2 = require("../utils/queue"), addEmailJob = _require2.addEmailJob;
+          _context5.n = 1;
+          return addEmailJob("sendAttachment", dataSend);
+        case 1:
+          return _context5.a(2, {
+            errCode: 0,
+            errMessage: "Remedy job has been added to queue!"
+          });
+      }
+    }, _callee5);
+  }));
+  return function sendAttachment(_x5) {
+    return _ref5.apply(this, arguments);
+  };
+}();
+var sendEmailPaymentSuccess = /*#__PURE__*/function () {
+  var _ref6 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee6(dataSend) {
+    var _require3, addEmailJob;
+    return _regenerator().w(function (_context6) {
+      while (1) switch (_context6.n) {
+        case 0:
+          _require3 = require("../utils/queue"), addEmailJob = _require3.addEmailJob;
+          _context6.n = 1;
+          return addEmailJob("sendEmailPaymentSuccess", dataSend);
+        case 1:
+          return _context6.a(2);
+      }
+    }, _callee6);
+  }));
+  return function sendEmailPaymentSuccess(_x6) {
+    return _ref6.apply(this, arguments);
+  };
+}();
 module.exports = {
   sendSimpleEmail: sendSimpleEmail,
   sendAttachment: sendAttachment,
-  sendEmailPaymentSuccess: sendEmailPaymentSuccess
+  sendEmailPaymentSuccess: sendEmailPaymentSuccess,
+  // Export direct methods for BullMQ Worker
+  sendSimpleEmailDirect: sendSimpleEmailDirect,
+  sendAttachmentDirect: sendAttachmentDirect,
+  sendEmailPaymentSuccessDirect: sendEmailPaymentSuccessDirect
 };

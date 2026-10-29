@@ -148,7 +148,10 @@ var getScheduleDoctorByDate = /*#__PURE__*/function () {
         case 0:
           _context6.p = 0;
           _context6.n = 1;
-          return _doctorServices["default"].getScheduleDoctorByDateServices(req.query.doctorId, req.query.date);
+          return _doctorServices["default"].getScheduleDoctorByDateServices({
+            doctorId: req.query.doctorId,
+            date: req.query.date
+          });
         case 1:
           message = _context6.v;
           return _context6.a(2, res.status(200).json(message));
@@ -298,25 +301,36 @@ var getListGDPR = /*#__PURE__*/function () {
 }();
 var postConfirmPayment = /*#__PURE__*/function () {
   var _ref10 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee10(req, res) {
-    var message, _t10;
+    var webhookToken, expectedToken, message, _t10;
     return _regenerator().w(function (_context10) {
       while (1) switch (_context10.p = _context10.n) {
         case 0:
           _context10.p = 0;
-          _context10.n = 1;
-          return _doctorServices["default"].postConfirmPayment(req.body, req.app.get("socketio"));
+          webhookToken = req.headers["secure-token-header"];
+          expectedToken = process.env.CASSO_WEBHOOK_KEY;
+          if (!(!webhookToken || webhookToken !== expectedToken)) {
+            _context10.n = 1;
+            break;
+          }
+          return _context10.a(2, res.status(401).json({
+            errCode: -1,
+            errMessage: "Không có quyền truy cập webhook!"
+          }));
         case 1:
+          _context10.n = 2;
+          return _doctorServices["default"].postConfirmPayment(req.body, req.app.get("socketio"));
+        case 2:
           message = _context10.v;
           return _context10.a(2, res.status(200).json(message));
-        case 2:
-          _context10.p = 2;
+        case 3:
+          _context10.p = 3;
           _t10 = _context10.v;
           return _context10.a(2, res.status(200).json({
             errCode: -1,
             errMessage: "Lỗi từ server!"
           }));
       }
-    }, _callee10, null, [[0, 2]]);
+    }, _callee10, null, [[0, 3]]);
   }));
   return function postConfirmPayment(_x21, _x22) {
     return _ref10.apply(this, arguments);
@@ -356,7 +370,7 @@ var sendPayment = /*#__PURE__*/function () {
         case 0:
           _context12.p = 0;
           _context12.n = 1;
-          return _doctorServices["default"].sendPayment(req.body);
+          return _doctorServices["default"].sendPayment(req.body, req.app.get("socketio"));
         case 1:
           message = _context12.v;
           return _context12.a(2, res.status(200).json(message));
@@ -400,6 +414,32 @@ var createPayOSPaymentLink = /*#__PURE__*/function () {
     return _ref13.apply(this, arguments);
   };
 }();
+var handlePayOSWebhook = /*#__PURE__*/function () {
+  var _ref14 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee14(req, res) {
+    var message, _t14;
+    return _regenerator().w(function (_context14) {
+      while (1) switch (_context14.p = _context14.n) {
+        case 0:
+          _context14.p = 0;
+          _context14.n = 1;
+          return _doctorServices["default"].handlePayOSWebhook(req.body, req.app.get("socketio"));
+        case 1:
+          message = _context14.v;
+          return _context14.a(2, res.status(200).json(message));
+        case 2:
+          _context14.p = 2;
+          _t14 = _context14.v;
+          return _context14.a(2, res.status(200).json({
+            errCode: -1,
+            errMessage: "Lỗi từ server!"
+          }));
+      }
+    }, _callee14, null, [[0, 2]]);
+  }));
+  return function handlePayOSWebhook(_x29, _x30) {
+    return _ref14.apply(this, arguments);
+  };
+}();
 module.exports = {
   getTopDoctorHome: getTopDoctorHome,
   getAllDoctor: getAllDoctor,
@@ -415,5 +455,6 @@ module.exports = {
   postConfirmPayment: postConfirmPayment,
   postMedicalAppointmentStatus: postMedicalAppointmentStatus,
   sendPayment: sendPayment,
-  createPayOSPaymentLink: createPayOSPaymentLink
+  createPayOSPaymentLink: createPayOSPaymentLink,
+  handlePayOSWebhook: handlePayOSWebhook
 };

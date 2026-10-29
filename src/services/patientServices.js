@@ -218,8 +218,40 @@ let getPatientAppointments = async (patientId) => {
     }
   });
 };
+let getPatientHistory = (patientId) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      if (!patientId) {
+        resolve({
+          errCode: 1,
+          errMessage: "Missing required parameter: patientId",
+        });
+      } else {
+        let history = await db.History.findAll({
+          where: { patientId: patientId },
+          include: [
+            {
+              model: db.User,
+              attributes: ["firstName", "lastName"],
+            },
+          ],
+          order: [["createdAt", "DESC"]],
+          raw: true,
+          nest: true,
+        });
+        resolve({
+          errCode: 0,
+          data: history,
+        });
+      }
+    } catch (e) {
+      reject(e);
+    }
+  });
+};
 module.exports = {
   postBookAppointmentServices: postBookAppointmentServices,
   postVerifyBookAppointment: postVerifyBookAppointment,
   getPatientAppointments: getPatientAppointments,
+  getPatientHistory: getPatientHistory,
 };

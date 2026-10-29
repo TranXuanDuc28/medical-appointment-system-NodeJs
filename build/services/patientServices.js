@@ -316,8 +316,64 @@ var getPatientAppointments = /*#__PURE__*/function () {
     return _ref4.apply(this, arguments);
   };
 }();
+var getPatientHistory = function getPatientHistory(patientId) {
+  return new Promise(/*#__PURE__*/function () {
+    var _ref6 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee6(resolve, reject) {
+      var history, _t4;
+      return _regenerator().w(function (_context6) {
+        while (1) switch (_context6.p = _context6.n) {
+          case 0:
+            _context6.p = 0;
+            if (patientId) {
+              _context6.n = 1;
+              break;
+            }
+            resolve({
+              errCode: 1,
+              errMessage: "Missing required parameter: patientId"
+            });
+            _context6.n = 3;
+            break;
+          case 1:
+            _context6.n = 2;
+            return _index["default"].History.findAll({
+              where: {
+                patientId: patientId
+              },
+              include: [{
+                model: _index["default"].User,
+                attributes: ["firstName", "lastName"]
+              }],
+              order: [["createdAt", "DESC"]],
+              raw: true,
+              nest: true
+            });
+          case 2:
+            history = _context6.v;
+            resolve({
+              errCode: 0,
+              data: history
+            });
+          case 3:
+            _context6.n = 5;
+            break;
+          case 4:
+            _context6.p = 4;
+            _t4 = _context6.v;
+            reject(_t4);
+          case 5:
+            return _context6.a(2);
+        }
+      }, _callee6, null, [[0, 4]]);
+    }));
+    return function (_x9, _x0) {
+      return _ref6.apply(this, arguments);
+    };
+  }());
+};
 module.exports = {
   postBookAppointmentServices: postBookAppointmentServices,
   postVerifyBookAppointment: postVerifyBookAppointment,
-  getPatientAppointments: getPatientAppointments
+  getPatientAppointments: getPatientAppointments,
+  getPatientHistory: getPatientHistory
 };

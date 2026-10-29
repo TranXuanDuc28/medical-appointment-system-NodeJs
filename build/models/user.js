@@ -77,7 +77,8 @@ module.exports = function (sequelize, DataTypes) {
     image: DataTypes.STRING,
     roleId: DataTypes.STRING,
     positionId: DataTypes.STRING,
-    groupId: DataTypes.INTEGER
+    groupId: DataTypes.INTEGER,
+    fcmToken: DataTypes.TEXT
   }, {
     sequelize: sequelize,
     modelName: "User"

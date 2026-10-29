@@ -9,13 +9,20 @@ var _connectDB = _interopRequireDefault(require("./config/connectDB"));
 var _http = _interopRequireDefault(require("http"));
 var _index = require("./socket/index.js");
 var _path = _interopRequireDefault(require("path"));
+var _redis = require("./utils/redis");
+var _queue = require("./utils/queue");
 function _interopRequireDefault(e) { return e && e.__esModule ? e : { "default": e }; }
 require("dotenv").config();
 var app = (0, _express["default"])();
 // app.use(cors({origin: true}));
 app.use(function (req, res, next) {
   // Website you wish to allow to connect
-  res.setHeader("Access-Control-Allow-Origin", process.env.URL_REACT);
+  var origin = req.headers.origin;
+  if (origin && (origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:") || origin.includes("192.168."))) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+  } else {
+    res.setHeader("Access-Control-Allow-Origin", process.env.URL_REACT || "*");
+  }
 
   // Request methods you wish to allow
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, PATCH, DELETE");
@@ -47,6 +54,8 @@ app.use((0, _cookieParser["default"])());
 // Serve static cho thư mục uploads
 app.use("/uploads", _express["default"]["static"](_path["default"].join(__dirname, "public/uploads")));
 (0, _connectDB["default"])();
+(0, _redis.initRedis)();
+(0, _queue.initQueue)();
 var server = _http["default"].createServer(app);
 (0, _index.socketInit)(app, server);
 var port = process.env.PORT || 6969;

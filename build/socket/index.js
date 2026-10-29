@@ -21,13 +21,20 @@ var _require2 = require("../services/chatServices"),
 var db = require("../models/index");
 require("dotenv").config();
 var _require3 = require("../services/doctorServices"),
-  getScheduleDoctorByDateServices = _require3.getScheduleDoctorByDateServices;
+  getScheduleDoctorByDateServices = _require3.getScheduleDoctorByDateServices,
+  sendPayment = _require3.sendPayment;
 var _require4 = require("../services/patientServices"),
   postBookAppointmentServices = _require4.postBookAppointmentServices;
 var socketInit = function socketInit(app, server) {
   var io = socket(server, {
     cors: {
-      origin: process.env.URL_REACT,
+      origin: function origin(_origin, callback) {
+        if (!_origin || _origin.startsWith("http://localhost:") || _origin.startsWith("http://127.0.0.1:") || _origin.includes("192.168.")) {
+          callback(null, true);
+        } else {
+          callback(null, process.env.URL_REACT);
+        }
+      },
       methods: ["GET", "POST"],
       credentials: true
     }
@@ -132,14 +139,29 @@ var socketInit = function socketInit(app, server) {
         io.emit("USER_ADDED", onlineUsers);
       }
     });
+    // Appointment: Join schedule room for doctor and date
+    socket.on("JOIN_ROOM", function (_ref5) {
+      var doctorId = _ref5.doctorId,
+        date = _ref5.date;
+      var currentRooms = Array.from(socket.rooms);
+      currentRooms.forEach(function (room) {
+        if (room.startsWith("schedule:")) {
+          socket.leave(room);
+        }
+      });
+      var roomName = "schedule:".concat(doctorId, ":").concat(date);
+      socket.join(roomName);
+      console.log("Socket ".concat(socket.id, " joined room: ").concat(roomName));
+    });
+
     // Appointment: Request available slots
     socket.on("GET_SLOTS", /*#__PURE__*/function () {
-      var _ref6 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee3(_ref5) {
+      var _ref7 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee3(_ref6) {
         var doctorId, date, slots, _t2;
         return _regenerator().w(function (_context3) {
           while (1) switch (_context3.p = _context3.n) {
             case 0:
-              doctorId = _ref5.doctorId, date = _ref5.date;
+              doctorId = _ref6.doctorId, date = _ref6.date;
               console.log(" start result", doctorId, date);
               _context3.p = 1;
               _context3.n = 2;
@@ -169,13 +191,13 @@ var socketInit = function socketInit(app, server) {
         }, _callee3, null, [[1, 3]]);
       }));
       return function (_x3) {
-        return _ref6.apply(this, arguments);
+        return _ref7.apply(this, arguments);
       };
     }());
 
     // Appointment: Book a slot
     socket.on("BOOK_SLOT", /*#__PURE__*/function () {
-      var _ref7 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee4(data) {
+      var _ref8 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee4(data) {
         var result, onlineUsers, patient, doctor, _t3;
         return _regenerator().w(function (_context4) {
           while (1) switch (_context4.p = _context4.n) {
@@ -208,8 +230,8 @@ var socketInit = function socketInit(app, server) {
               });
               doctor = onlineUsers.find(function (u) {
                 return u.id === data.doctorId;
-              }); // Broadcast slot update to all clients
-              io.emit("SLOT_UPDATED", {
+              }); // Broadcast slot update ONLY to clients in the specific room
+              io.to("schedule:".concat(data.doctorId, ":").concat(data.date)).emit("SLOT_UPDATED", {
                 doctorId: data.doctorId,
                 date: data.date,
                 timeType: data.timeType,
@@ -250,7 +272,7 @@ var socketInit = function socketInit(app, server) {
         }, _callee4, null, [[0, 5]]);
       }));
       return function (_x4) {
-        return _ref7.apply(this, arguments);
+        return _ref8.apply(this, arguments);
       };
     }());
 
@@ -266,14 +288,14 @@ var socketInit = function socketInit(app, server) {
     //   }
     // });
     socket.on("SEND_PAYMENT", /*#__PURE__*/function () {
-      var _ref8 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee5(data) {
+      var _ref9 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee5(data) {
         var results, _t4;
         return _regenerator().w(function (_context5) {
           while (1) switch (_context5.p = _context5.n) {
             case 0:
               _context5.p = 0;
               _context5.n = 1;
-              return postSendPayment(data);
+              return sendPayment(data, io);
             case 1:
               results = _context5.v;
               if (results.errCode === 0) {
@@ -300,7 +322,7 @@ var socketInit = function socketInit(app, server) {
         }, _callee5, null, [[0, 2]]);
       }));
       return function (_x5) {
-        return _ref8.apply(this, arguments);
+        return _ref9.apply(this, arguments);
       };
     }());
     socket.on("disconnect", function () {

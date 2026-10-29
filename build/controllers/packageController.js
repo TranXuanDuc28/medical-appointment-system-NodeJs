@@ -14,11 +14,12 @@ function asyncGeneratorStep(n, t, e, r, o, a, c) { try { var i = n[a](c), u = i.
 function _asyncToGenerator(n) { return function () { var t = this, e = arguments; return new Promise(function (r, o) { var a = n.apply(t, e); function _next(n) { asyncGeneratorStep(a, r, o, _next, _throw, "next", n); } function _throw(n) { asyncGeneratorStep(a, r, o, _next, _throw, "throw", n); } _next(void 0); }); }; }
 var getAllPackages = /*#__PURE__*/function () {
   var _ref = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee(req, res) {
-    var packages, _t;
+    var lang, packages, formattedPackages, _t;
     return _regenerator().w(function (_context) {
       while (1) switch (_context.p = _context.n) {
         case 0:
           _context.p = 0;
+          lang = req.query.lang || 'vi';
           _context.n = 1;
           return _index["default"].Package.findAll({
             where: {
@@ -31,17 +32,52 @@ var getAllPackages = /*#__PURE__*/function () {
             }, {
               model: _index["default"].Specialty,
               as: 'specialtyData',
-              attributes: ['name', 'descriptionHTML', 'descriptionMarkdown']
+              attributes: ['id', 'image'],
+              include: [{
+                model: _index["default"].Specialty_Translation,
+                as: 'specialtyData',
+                where: {
+                  lang: lang
+                },
+                attributes: ['name'],
+                required: false
+              }, {
+                model: _index["default"].Markdown,
+                as: 'specialtyMarkdown',
+                where: {
+                  lang: lang
+                },
+                attributes: ['contentHTML', 'contentMarkdown'],
+                required: false
+              }]
             }],
             order: [['isFeatured', 'DESC'], ['createdAt', 'DESC']],
             raw: false
           });
         case 1:
           packages = _context.v;
+          formattedPackages = packages.map(function (pkg) {
+            var pkgJson = pkg.get({
+              plain: true
+            });
+            if (pkgJson.specialtyData) {
+              var specialty = pkgJson.specialtyData;
+              var translation = specialty.specialtyData && specialty.specialtyData[0] ? specialty.specialtyData[0] : {};
+              var markdown = specialty.specialtyMarkdown && specialty.specialtyMarkdown[0] ? specialty.specialtyMarkdown[0] : {};
+              pkgJson.specialtyData = {
+                id: specialty.id,
+                image: specialty.image,
+                name: translation.name || '',
+                descriptionHTML: markdown.contentHTML || '',
+                descriptionMarkdown: markdown.contentMarkdown || ''
+              };
+            }
+            return pkgJson;
+          });
           return _context.a(2, res.status(200).json({
             errCode: 0,
             message: 'OK',
-            data: packages
+            data: formattedPackages
           }));
         case 2:
           _context.p = 2;
@@ -106,13 +142,14 @@ var getFeaturedPackages = /*#__PURE__*/function () {
 }();
 var getPackageById = /*#__PURE__*/function () {
   var _ref3 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee3(req, res) {
-    var id, packageData, _t3;
+    var id, lang, packageData, pkgJson, specialty, translation, markdown, _t3;
     return _regenerator().w(function (_context3) {
       while (1) switch (_context3.p = _context3.n) {
         case 0:
           console.log('req.params', req.params);
           _context3.p = 1;
           id = req.params.id;
+          lang = req.query.lang || 'vi';
           if (id) {
             _context3.n = 2;
             break;
@@ -135,7 +172,24 @@ var getPackageById = /*#__PURE__*/function () {
             }, {
               model: _index["default"].Specialty,
               as: 'specialtyData',
-              attributes: ['name', 'descriptionHTML', 'descriptionMarkdown']
+              attributes: ['id', 'image'],
+              include: [{
+                model: _index["default"].Specialty_Translation,
+                as: 'specialtyData',
+                where: {
+                  lang: lang
+                },
+                attributes: ['name'],
+                required: false
+              }, {
+                model: _index["default"].Markdown,
+                as: 'specialtyMarkdown',
+                where: {
+                  lang: lang
+                },
+                attributes: ['contentHTML', 'contentMarkdown'],
+                required: false
+              }]
             }],
             raw: false
           });
@@ -150,10 +204,25 @@ var getPackageById = /*#__PURE__*/function () {
             message: 'Package not found 1'
           }));
         case 4:
+          pkgJson = packageData.get({
+            plain: true
+          });
+          if (pkgJson.specialtyData) {
+            specialty = pkgJson.specialtyData;
+            translation = specialty.specialtyData && specialty.specialtyData[0] ? specialty.specialtyData[0] : {};
+            markdown = specialty.specialtyMarkdown && specialty.specialtyMarkdown[0] ? specialty.specialtyMarkdown[0] : {};
+            pkgJson.specialtyData = {
+              id: specialty.id,
+              image: specialty.image,
+              name: translation.name || '',
+              descriptionHTML: markdown.contentHTML || '',
+              descriptionMarkdown: markdown.contentMarkdown || ''
+            };
+          }
           return _context3.a(2, res.status(200).json({
             errCode: 0,
             message: 'OK',
-            data: packageData
+            data: pkgJson
           }));
         case 5:
           _context3.p = 5;
@@ -173,7 +242,7 @@ var getPackageById = /*#__PURE__*/function () {
 }();
 var searchPackages = /*#__PURE__*/function () {
   var _ref4 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee4(req, res) {
-    var _req$query, keyword, category, gender, minPrice, maxPrice, facilityId, specialtyId, ageRange, _req$query$sortBy, sortBy, _req$query$sortOrder, sortOrder, _req$query$limit, limit, _req$query$offset, offset, whereClause, allowedSortFields, allowedSortOrders, orderClause, packages, categories, ageRanges, _t4;
+    var _req$query, keyword, category, gender, minPrice, maxPrice, facilityId, specialtyId, ageRange, _req$query$sortBy, sortBy, _req$query$sortOrder, sortOrder, _req$query$limit, limit, _req$query$offset, offset, whereClause, allowedSortFields, allowedSortOrders, orderClause, packages, categories, ageRanges, formattedRows, _t4;
     return _regenerator().w(function (_context4) {
       while (1) switch (_context4.p = _context4.n) {
         case 0:
@@ -245,7 +314,24 @@ var searchPackages = /*#__PURE__*/function () {
             }, {
               model: _index["default"].Specialty,
               as: 'specialtyData',
-              attributes: ['name', 'descriptionHTML', 'descriptionMarkdown']
+              attributes: ['id', 'image'],
+              include: [{
+                model: _index["default"].Specialty_Translation,
+                as: 'specialtyData',
+                where: {
+                  lang: req.query.lang || 'vi'
+                },
+                attributes: ['name'],
+                required: false
+              }, {
+                model: _index["default"].Markdown,
+                as: 'specialtyMarkdown',
+                where: {
+                  lang: req.query.lang || 'vi'
+                },
+                attributes: ['contentHTML', 'contentMarkdown'],
+                required: false
+              }]
             }],
             order: orderClause,
             limit: parseInt(limit),
@@ -274,11 +360,29 @@ var searchPackages = /*#__PURE__*/function () {
           });
         case 3:
           ageRanges = _context4.v;
+          formattedRows = packages.rows.map(function (pkg) {
+            var pkgJson = pkg.get({
+              plain: true
+            });
+            if (pkgJson.specialtyData) {
+              var specialty = pkgJson.specialtyData;
+              var translation = specialty.specialtyData && specialty.specialtyData[0] ? specialty.specialtyData[0] : {};
+              var markdown = specialty.specialtyMarkdown && specialty.specialtyMarkdown[0] ? specialty.specialtyMarkdown[0] : {};
+              pkgJson.specialtyData = {
+                id: specialty.id,
+                image: specialty.image,
+                name: translation.name || '',
+                descriptionHTML: markdown.contentHTML || '',
+                descriptionMarkdown: markdown.contentMarkdown || ''
+              };
+            }
+            return pkgJson;
+          });
           return _context4.a(2, res.status(200).json({
             errCode: 0,
             message: 'OK',
             data: {
-              packages: packages.rows,
+              packages: formattedRows,
               total: packages.count,
               limit: parseInt(limit),
               offset: parseInt(offset),
@@ -496,7 +600,7 @@ var deletePackage = /*#__PURE__*/function () {
 }();
 var getFilterOptions = /*#__PURE__*/function () {
   var _ref8 = _asyncToGenerator(/*#__PURE__*/_regenerator().m(function _callee8(req, res) {
-    var categories, ageRanges, genders, facilities, specialties, priceStats, _t8;
+    var categories, ageRanges, genders, facilities, lang, specialtiesData, specialties, priceStats, _t8;
     return _regenerator().w(function (_context8) {
       while (1) switch (_context8.p = _context8.n) {
         case 0:
@@ -541,13 +645,35 @@ var getFilterOptions = /*#__PURE__*/function () {
           });
         case 4:
           facilities = _context8.v;
+          // Get all specialties
+          lang = req.query.lang || 'vi';
           _context8.n = 5;
           return _index["default"].Specialty.findAll({
-            attributes: ['id', 'name'],
-            order: [['name', 'ASC']]
+            include: [{
+              model: _index["default"].Specialty_Translation,
+              as: 'specialtyData',
+              where: {
+                lang: lang
+              },
+              attributes: ['name'],
+              required: false
+            }],
+            raw: false
           });
         case 5:
-          specialties = _context8.v;
+          specialtiesData = _context8.v;
+          specialties = specialtiesData.map(function (item) {
+            var translation = item.specialtyData && item.specialtyData[0] ? item.specialtyData[0] : {};
+            return {
+              id: item.id,
+              name: translation.name || ''
+            };
+          });
+          specialties.sort(function (a, b) {
+            return (a.name || '').localeCompare(b.name || '', lang);
+          });
+
+          // Get price ranges
           _context8.n = 6;
           return _index["default"].Package.findOne({
             where: {

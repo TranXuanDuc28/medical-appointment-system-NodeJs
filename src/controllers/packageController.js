@@ -4,6 +4,7 @@ import { Op } from 'sequelize';
 
 let getAllPackages = async (req, res) => {
     try {
+        let lang = req.query.lang || 'vi';
         let packages = await db.Package.findAll({
             where: { isActive: true },
             include: [
@@ -15,17 +16,51 @@ let getAllPackages = async (req, res) => {
                 {
                     model: db.Specialty,
                     as: 'specialtyData',
-                    attributes: ['name', 'descriptionHTML', 'descriptionMarkdown']
+                    attributes: ['id', 'image'],
+                    include: [
+                        {
+                            model: db.Specialty_Translation,
+                            as: 'specialtyData',
+                            where: { lang: lang },
+                            attributes: ['name'],
+                            required: false
+                        },
+                        {
+                            model: db.Markdown,
+                            as: 'specialtyMarkdown',
+                            where: { lang: lang },
+                            attributes: ['contentHTML', 'contentMarkdown'],
+                            required: false
+                        }
+                    ]
                 }
             ],
             order: [['isFeatured', 'DESC'], ['createdAt', 'DESC']],
             raw: false
         });
 
+        let formattedPackages = packages.map(pkg => {
+            let pkgJson = pkg.get({ plain: true });
+            if (pkgJson.specialtyData) {
+                const specialty = pkgJson.specialtyData;
+                const translation = specialty.specialtyData && specialty.specialtyData[0] ? specialty.specialtyData[0] : {};
+                const markdown = specialty.specialtyMarkdown && specialty.specialtyMarkdown[0] ? specialty.specialtyMarkdown[0] : {};
+                
+                pkgJson.specialtyData = {
+                    id: specialty.id,
+                    image: specialty.image,
+                    name: translation.name || '',
+                    descriptionHTML: markdown.contentHTML || '',
+                    descriptionMarkdown: markdown.contentMarkdown || ''
+                };
+            }
+            return pkgJson;
+        });
+
         return res.status(200).json({
             errCode: 0,
             message: 'OK',
-            data: packages
+            data: formattedPackages
         });
     } catch (error) {
         console.log(error);
@@ -75,6 +110,7 @@ let getPackageById = async (req, res) => {
     console.log('req.params', req.params);
     try {
         let id = req.params.id;
+        let lang = req.query.lang || 'vi';
         if (!id) {
             return res.status(400).json({
                 errCode: 1,
@@ -93,7 +129,23 @@ let getPackageById = async (req, res) => {
                 {
                     model: db.Specialty,
                     as: 'specialtyData',
-                    attributes: ['name', 'descriptionHTML', 'descriptionMarkdown']
+                    attributes: ['id', 'image'],
+                    include: [
+                        {
+                            model: db.Specialty_Translation,
+                            as: 'specialtyData',
+                            where: { lang: lang },
+                            attributes: ['name'],
+                            required: false
+                        },
+                        {
+                            model: db.Markdown,
+                            as: 'specialtyMarkdown',
+                            where: { lang: lang },
+                            attributes: ['contentHTML', 'contentMarkdown'],
+                            required: false
+                        }
+                    ]
                 }
             ],
             raw: false
@@ -106,10 +158,25 @@ let getPackageById = async (req, res) => {
             });
         }
 
+        let pkgJson = packageData.get({ plain: true });
+        if (pkgJson.specialtyData) {
+            const specialty = pkgJson.specialtyData;
+            const translation = specialty.specialtyData && specialty.specialtyData[0] ? specialty.specialtyData[0] : {};
+            const markdown = specialty.specialtyMarkdown && specialty.specialtyMarkdown[0] ? specialty.specialtyMarkdown[0] : {};
+            
+            pkgJson.specialtyData = {
+                id: specialty.id,
+                image: specialty.image,
+                name: translation.name || '',
+                descriptionHTML: markdown.contentHTML || '',
+                descriptionMarkdown: markdown.contentMarkdown || ''
+            };
+        }
+
         return res.status(200).json({
             errCode: 0,
             message: 'OK',
-            data: packageData
+            data: pkgJson
         });
     } catch (error) {
         console.log(error);
@@ -208,7 +275,23 @@ let searchPackages = async (req, res) => {
                 {
                     model: db.Specialty,
                     as: 'specialtyData',
-                    attributes: ['name', 'descriptionHTML', 'descriptionMarkdown']
+                    attributes: ['id', 'image'],
+                    include: [
+                        {
+                            model: db.Specialty_Translation,
+                            as: 'specialtyData',
+                            where: { lang: req.query.lang || 'vi' },
+                            attributes: ['name'],
+                            required: false
+                        },
+                        {
+                            model: db.Markdown,
+                            as: 'specialtyMarkdown',
+                            where: { lang: req.query.lang || 'vi' },
+                            attributes: ['contentHTML', 'contentMarkdown'],
+                            required: false
+                        }
+                    ]
                 }
             ],
             order: orderClause,
@@ -231,11 +314,29 @@ let searchPackages = async (req, res) => {
             raw: true
         });
 
+        let formattedRows = packages.rows.map(pkg => {
+            let pkgJson = pkg.get({ plain: true });
+            if (pkgJson.specialtyData) {
+                const specialty = pkgJson.specialtyData;
+                const translation = specialty.specialtyData && specialty.specialtyData[0] ? specialty.specialtyData[0] : {};
+                const markdown = specialty.specialtyMarkdown && specialty.specialtyMarkdown[0] ? specialty.specialtyMarkdown[0] : {};
+                
+                pkgJson.specialtyData = {
+                    id: specialty.id,
+                    image: specialty.image,
+                    name: translation.name || '',
+                    descriptionHTML: markdown.contentHTML || '',
+                    descriptionMarkdown: markdown.contentMarkdown || ''
+                };
+            }
+            return pkgJson;
+        });
+
         return res.status(200).json({
             errCode: 0,
             message: 'OK',
             data: {
-                packages: packages.rows,
+                packages: formattedRows,
                 total: packages.count,
                 limit: parseInt(limit),
                 offset: parseInt(offset),
@@ -422,10 +523,29 @@ let getFilterOptions = async (req, res) => {
         });
 
         // Get all specialties
-        let specialties = await db.Specialty.findAll({
-            attributes: ['id', 'name'],
-            order: [['name', 'ASC']]
+        let lang = req.query.lang || 'vi';
+        let specialtiesData = await db.Specialty.findAll({
+            include: [
+                {
+                    model: db.Specialty_Translation,
+                    as: 'specialtyData',
+                    where: { lang: lang },
+                    attributes: ['name'],
+                    required: false
+                }
+            ],
+            raw: false
         });
+
+        let specialties = specialtiesData.map(item => {
+            let translation = item.specialtyData && item.specialtyData[0] ? item.specialtyData[0] : {};
+            return {
+                id: item.id,
+                name: translation.name || ''
+            };
+        });
+
+        specialties.sort((a, b) => (a.name || '').localeCompare(b.name || '', lang));
 
         // Get price ranges
         let priceStats = await db.Package.findOne({

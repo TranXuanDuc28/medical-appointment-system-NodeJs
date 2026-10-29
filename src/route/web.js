@@ -12,6 +12,8 @@ import packageController from "../controllers/packageController";
 import facilityController from "../controllers/facilityController";
 import handbookController from "../controllers/handbookController";
 import questionController from "../controllers/questionController";
+import { checkAuthenticationUser, checkUserPermission } from "../middleware/JWTaction";
+import { cacheMiddleware, invalidateCache } from "../utils/redis";
 const multer = require("multer");
 const path = require("path");
 const slugify = require("slugify");
@@ -51,32 +53,46 @@ let initWebRoutes = (app) => {
   // API routes
   router.post("/api/register", userController.handleRegister);
   router.post("/api/login", userController.handleLogin);
+  router.post("/api/logout", userController.handleLogout);
+  router.post("/api/refresh-token", userController.handleRefreshToken);
+  router.post("/api/save-fcm-token", userController.saveFCMToken);
   router.get("/api/get_all_users", userController.handleGetAllUsers);
   router.post("/api/create_new_users", userController.handleCreateNewUsers);
   router.delete("/api/delete_users", userController.handleDeleteUsers);
   router.put("/api/edit_users", userController.handleEditUsers);
   router.get("/api/allcode", userController.getAllCode);
-  router.get("/api/top-doctor-home", doctorController.getTopDoctorHome);
-  router.get("/api/get_all_doctor", doctorController.getAllDoctor);
-  router.post("/api/save_detail_doctor", doctorController.postInforDoctor);
+  router.get("/api/top-doctor-home", cacheMiddleware(300), doctorController.getTopDoctorHome);
+  router.get("/api/get_all_doctor", cacheMiddleware(300), doctorController.getAllDoctor);
+  router.post("/api/save_detail_doctor", (req, res, next) => {
+    invalidateCache(["/api/top-doctor-home", "/api/get_all_doctor", "/api/get_detail_doctor_by_id", "/api/get-extra-doctor-by-id", "/api/get-profile-doctor-by-id"]);
+    next();
+  }, doctorController.postInforDoctor);
   router.get(
     "/api/get_detail_doctor_by_id",
+    cacheMiddleware(300),
     doctorController.getDetailDoctorById
   );
   router.post(
     "/api/bulk_create_schedule",
+    (req, res, next) => {
+      invalidateCache(["/api/get_schedule_doctor_by_date"]);
+      next();
+    },
     doctorController.getBulkCreateSchedule
   );
   router.get(
     "/api/get_schedule_doctor_by_date",
+    cacheMiddleware(60),
     doctorController.getScheduleDoctorByDate
   );
   router.get(
     "/api/get-extra-doctor-by-id",
+    cacheMiddleware(300),
     doctorController.getExtraDoctorInforById
   );
   router.get(
     "/api/get-profile-doctor-by-id",
+    cacheMiddleware(300),
     doctorController.getProfileDoctorById
   );
   router.post(
@@ -88,28 +104,41 @@ let initWebRoutes = (app) => {
     patientController.postVerifyBookAppointment
   );
   // HandBook routes
-  router.post("/api/create-new-handbook", handbookController.createHandBook);
-  router.get("/api/get-handbook", handbookController.getAllHandBook);
+  router.post("/api/create-new-handbook", (req, res, next) => {
+    invalidateCache(["/api/get-handbook", "/api/get-detail-handbook-by-id", "/api/get-related-handbooks"]);
+    next();
+  }, handbookController.createHandBook);
+  router.get("/api/get-handbook", cacheMiddleware(600), handbookController.getAllHandBook);
   router.get(
     "/api/get-detail-handbook-by-id",
+    cacheMiddleware(600),
     handbookController.getDetailHandBookById
   );
   router.get(
     "/api/get-related-handbooks",
+    cacheMiddleware(600),
     handbookController.getRelatedHandBooks
   );
   // Specialty routes
-  router.post("/api/create-new-specialty", specialtyController.createSpecialty);
-  router.get("/api/get-specialty", specialtyController.getAllSpecialty);
+  router.post("/api/create-new-specialty", (req, res, next) => {
+    invalidateCache(["/api/get-specialty", "/api/get-detail-specialty-by-id"]);
+    next();
+  }, specialtyController.createSpecialty);
+  router.get("/api/get-specialty", cacheMiddleware(600), specialtyController.getAllSpecialty);
   router.get(
     "/api/get-detail-specialty-by-id",
+    cacheMiddleware(600),
     specialtyController.getDetailSpecialtyById
   );
   // Clinic routes
-  router.post("/api/create-new-clinic", clinicController.createClinic);
-  router.get("/api/get-clinic", clinicController.getAllClinic);
+  router.post("/api/create-new-clinic", (req, res, next) => {
+    invalidateCache(["/api/get-clinic", "/api/get-detail-clinic-by-id"]);
+    next();
+  }, clinicController.createClinic);
+  router.get("/api/get-clinic", cacheMiddleware(600), clinicController.getAllClinic);
   router.get(
     "/api/get-detail-clinic-by-id",
+    cacheMiddleware(600),
     clinicController.getDetailClinicById
   );
   // Patient routes
@@ -128,7 +157,7 @@ let initWebRoutes = (app) => {
   router.get("/api/get-medicines", medicineController.getAllMedicine);
 
   // PayOS & Casso webhook: cập nhật trạng thái booking khi nhận được giao dịch thanh toán
-  router.post("/api/payos/webhook", doctorController.postConfirmPayment);
+  router.post("/api/payos/webhook", doctorController.handlePayOSWebhook);
   router.post("/api/payos/create-payment-link", doctorController.createPayOSPaymentLink);
   router.post("/api/casso/webhook", doctorController.postConfirmPayment);
   router.post("/api/send-payment", doctorController.sendPayment);
@@ -161,40 +190,66 @@ let initWebRoutes = (app) => {
   router.post("/api/login-patient-chat", userController.handlePatientChatLogin);
 
   // Package routes
-  router.get("/api/packages/all", packageController.getAllPackages);
-  router.get("/api/packages/featured", packageController.getFeaturedPackages);
+  router.get("/api/packages/all", cacheMiddleware(300), packageController.getAllPackages);
+  router.get("/api/packages/featured", cacheMiddleware(300), packageController.getFeaturedPackages);
   router.get(
     "/api/packages/filter-options",
+    cacheMiddleware(600),
     packageController.getFilterOptions
   );
-  router.get("/api/packages/search", packageController.searchPackages);
-  router.get("/api/packages/:id", packageController.getPackageById);
-  router.post("/api/packages/create", packageController.createPackage);
-  router.put("/api/packages/update/:id", packageController.updatePackage);
-  router.delete("/api/packages/delete/:id", packageController.deletePackage);
+  router.get("/api/packages/search", cacheMiddleware(60), packageController.searchPackages);
+  router.get("/api/packages/:id", cacheMiddleware(300), packageController.getPackageById);
+  router.post("/api/packages/create", (req, res, next) => {
+    invalidateCache(["/api/packages/all", "/api/packages/featured", "/api/packages/filter-options"]);
+    next();
+  }, packageController.createPackage);
+  router.put("/api/packages/update/:id", (req, res, next) => {
+    invalidateCache(["/api/packages/all", "/api/packages/featured", `/api/packages/${req.params.id}`]);
+    next();
+  }, packageController.updatePackage);
+  router.delete("/api/packages/delete/:id", (req, res, next) => {
+    invalidateCache(["/api/packages/all", "/api/packages/featured", `/api/packages/${req.params.id}`]);
+    next();
+  }, packageController.deletePackage);
 
   // Facility routes
-  router.get("/api/facilities/all", facilityController.getAllFacilities);
+  router.get("/api/facilities/all", cacheMiddleware(300), facilityController.getAllFacilities);
   router.get(
     "/api/facilities/featured",
+    cacheMiddleware(300),
     facilityController.getFeaturedFacilities
   );
   router.get(
     "/api/facilities/filter-options",
+    cacheMiddleware(600),
     facilityController.getFilterOptions
   );
-  router.get("/api/facilities/search", facilityController.searchFacilities);
-  router.get("/api/facilities/:id", facilityController.getFacilityById);
-  router.post("/api/facilities/create", facilityController.createFacility);
-  router.put("/api/facilities/update/:id", facilityController.updateFacility);
+  router.get("/api/facilities/search", cacheMiddleware(60), facilityController.searchFacilities);
+  router.get("/api/facilities/:id", cacheMiddleware(300), facilityController.getFacilityById);
+  router.post("/api/facilities/create", (req, res, next) => {
+    invalidateCache(["/api/facilities/all", "/api/facilities/featured", "/api/facilities/filter-options"]);
+    next();
+  }, facilityController.createFacility);
+  router.put("/api/facilities/update/:id", (req, res, next) => {
+    invalidateCache(["/api/facilities/all", "/api/facilities/featured", `/api/facilities/${req.params.id}`]);
+    next();
+  }, facilityController.updateFacility);
   router.delete(
     "/api/facilities/delete/:id",
+    (req, res, next) => {
+      invalidateCache(["/api/facilities/all", "/api/facilities/featured", `/api/facilities/${req.params.id}`]);
+      next();
+    },
     facilityController.deleteFacility
   );
   // Appointment history routes
   router.get(
     "/api/get-patient-appointments",
     patientController.getPatientAppointments
+  );
+  router.get(
+    "/api/get-patient-history",
+    patientController.getPatientHistory
   );
 
   // Health assessment routes
