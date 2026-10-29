@@ -44,7 +44,12 @@ let handleLogin = async (req, res) => {
       roles: userData.users.Group && userData.users.Group.Roles ? userData.users.Group.Roles : [],
     };
     let token = JWTaction.createJWT(payload);
-    res.cookie("jwt", token, { httpOnly: true, maxAge: +process.env.COOKIE_EXPIRES_IN });
+    const cookieMaxAge = process.env.COOKIE_EXPIRES_IN && !isNaN(+process.env.COOKIE_EXPIRES_IN)
+      ? +process.env.COOKIE_EXPIRES_IN
+      : 86400000;
+    if (token) {
+      res.cookie("jwt", token, { httpOnly: true, maxAge: cookieMaxAge });
+    }
     
     userData.token = token;
   }

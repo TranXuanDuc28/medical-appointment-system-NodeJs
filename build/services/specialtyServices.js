@@ -225,7 +225,7 @@ var getAllSpecialty = function getAllSpecialty(lang) {
             if (specialtyResult && specialtyResult.length > 0) {
               specialtyResult.map(function (item) {
                 if (item.image) {
-                  item.image = new Buffer(item.image, "base64").toString("binary");
+                  item.image = Buffer.from(item.image, "base64").toString("binary");
                   return item;
                 }
               });
@@ -355,7 +355,7 @@ var getDetailSpecialtyById = function getDetailSpecialtyById(inputId, location, 
                 },
                 required: false
               }],
-              raw: true
+              raw: false
             });
           case 4:
             data = _context3.v;

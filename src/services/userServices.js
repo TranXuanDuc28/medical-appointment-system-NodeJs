@@ -90,7 +90,7 @@ let handleUserLogin = (email, password) => {
             delete users.password;
             //Nếu users là object (findOne), chuyển image sang binary string
             if (users.image) {
-              users.image = new Buffer(users.image, "base64").toString(
+              users.image = Buffer.from(users.image, "base64").toString(
                 "binary"
               );
             }

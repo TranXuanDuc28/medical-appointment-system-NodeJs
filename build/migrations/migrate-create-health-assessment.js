@@ -11,7 +11,7 @@ module.exports = {
         while (1) switch (_context.n) {
           case 0:
             _context.n = 1;
-            return queryInterface.createTable("health_assessments", {
+            return queryInterface.createTable("Health_Assessments", {
               id: {
                 allowNull: false,
                 autoIncrement: true,
@@ -76,7 +76,7 @@ module.exports = {
         while (1) switch (_context2.n) {
           case 0:
             _context2.n = 1;
-            return queryInterface.dropTable("health_assessments");
+            return queryInterface.dropTable("Health_Assessments");
           case 1:
             return _context2.a(2);
         }

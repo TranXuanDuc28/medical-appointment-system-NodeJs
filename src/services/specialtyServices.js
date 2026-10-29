@@ -158,7 +158,7 @@ let getAllSpecialty = (lang) => {
       if (specialtyResult && specialtyResult.length > 0) {
         specialtyResult.map((item) => {
           if (item.image) {
-            item.image = new Buffer(item.image, "base64").toString("binary");
+            item.image = Buffer.from(item.image, "base64").toString("binary");
             return item;
           }
         });

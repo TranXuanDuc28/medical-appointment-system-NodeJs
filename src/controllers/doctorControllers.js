@@ -177,6 +177,17 @@ let sendPayment = async (req, res) => {
     });
   }
 };
+let createPayOSPaymentLink = async (req, res) => {
+  try {
+    let message = await doctorServices.createPayOSPaymentLink(req.body);
+    return res.status(200).json(message);
+  } catch (error) {
+    return res.status(200).json({
+      errCode: -1,
+      errMessage: "Lỗi từ server!",
+    });
+  }
+};
 
 module.exports = {
   getTopDoctorHome: getTopDoctorHome,
@@ -193,4 +204,5 @@ module.exports = {
   postConfirmPayment: postConfirmPayment,
   postMedicalAppointmentStatus: postMedicalAppointmentStatus,
   sendPayment: sendPayment,
+  createPayOSPaymentLink: createPayOSPaymentLink,
 };

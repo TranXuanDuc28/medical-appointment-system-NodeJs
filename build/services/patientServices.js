@@ -256,8 +256,8 @@ var getPatientAppointments = /*#__PURE__*/function () {
                           as: "doctorData",
                           attributes: ["firstName", "lastName"]
                         }, {
-                          model: _index["default"].Specialty,
-                          as: "doctorSpecialty",
+                          model: _index["default"].Specialty_Translation,
+                          as: "specialty",
                           attributes: ["name"]
                         }],
                         raw: false,
@@ -269,7 +269,6 @@ var getPatientAppointments = /*#__PURE__*/function () {
                     });
                   case 2:
                     appointments = _context4.v;
-                    //console.log("appointments", appointments);
                     if (appointments && appointments.length > 0) {
                       resolve({
                         errCode: 0,
@@ -277,10 +276,10 @@ var getPatientAppointments = /*#__PURE__*/function () {
                           return {
                             id: appointment.id,
                             doctorName: "".concat(appointment.doctorInforData.doctorData.firstName, " ").concat(appointment.doctorInforData.doctorData.lastName),
-                            specialty: appointment.doctorInforData.doctorSpecialty ? appointment.doctorInforData.doctorSpecialty.name : "N/A",
+                            specialty: appointment.doctorInforData.specialty ? appointment.doctorInforData.specialty.name : "N/A",
                             time: appointment.date,
-                            timeType: appointment.timeTypeDataPatient.valueVi,
-                            status: appointment.statusDataPatient.valueVi
+                            timeType: appointment.timeTypeDataPatient ? appointment.timeTypeDataPatient.valueVi || appointment.timeTypeDataPatient.valueEn : "",
+                            status: appointment.statusDataPatient ? appointment.statusDataPatient.valueVi || appointment.statusDataPatient.valueEn : ""
                           };
                         })
                       });

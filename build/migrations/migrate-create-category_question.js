@@ -11,7 +11,7 @@ module.exports = {
         while (1) switch (_context.n) {
           case 0:
             _context.n = 1;
-            return queryInterface.createTable("category_questions", {
+            return queryInterface.createTable("Category_Questions", {
               id: {
                 allowNull: false,
                 autoIncrement: true,
@@ -56,7 +56,7 @@ module.exports = {
         while (1) switch (_context2.n) {
           case 0:
             _context2.n = 1;
-            return queryInterface.dropTable("category_questions");
+            return queryInterface.dropTable("Category_Questions");
           case 1:
             return _context2.a(2);
         }

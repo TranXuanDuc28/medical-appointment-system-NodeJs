@@ -4,6 +4,7 @@
   "description": "backend nodejs DucIT",
   "main": "server.js",
   "dependencies": {
+    "@payos/node": "^2.0.5",
     "axios": "^1.11.0",
     "bcryptjs": "^3.0.2",
     "body-parser": "^2.2.0",

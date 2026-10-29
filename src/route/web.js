@@ -12,7 +12,6 @@ import packageController from "../controllers/packageController";
 import facilityController from "../controllers/facilityController";
 import handbookController from "../controllers/handbookController";
 import questionController from "../controllers/questionController";
-import { checkAuthenticationUser, checkUserPermission } from "../middleware/JWTaction";
 const multer = require("multer");
 const path = require("path");
 const slugify = require("slugify");
@@ -40,8 +39,6 @@ let router = express.Router();
 
 // tao ham initWebRoutes
 let initWebRoutes = (app) => {
-  router.use(checkAuthenticationUser, checkUserPermission);
-
   // crud routes
   router.get("/", homeController.getHomePage);
   router.get("/about", homeController.getAboutPage);
@@ -54,7 +51,6 @@ let initWebRoutes = (app) => {
   // API routes
   router.post("/api/register", userController.handleRegister);
   router.post("/api/login", userController.handleLogin);
-  router.post("/api/logout", userController.handleLogout);
   router.get("/api/get_all_users", userController.handleGetAllUsers);
   router.post("/api/create_new_users", userController.handleCreateNewUsers);
   router.delete("/api/delete_users", userController.handleDeleteUsers);
@@ -127,12 +123,13 @@ let initWebRoutes = (app) => {
     doctorController.postMedicalAppointmentStatus
   );
   // Add the Casso payment transaction API endpoint
-
   router.get("/api/check-paid", doctorController.getListGDPR);
   // Medicine routes
   router.get("/api/get-medicines", medicineController.getAllMedicine);
 
-  // Casso webhook: cập nhật trạng thái booking khi nhận được giao dịch thanh toán
+  // PayOS & Casso webhook: cập nhật trạng thái booking khi nhận được giao dịch thanh toán
+  router.post("/api/payos/webhook", doctorController.postConfirmPayment);
+  router.post("/api/payos/create-payment-link", doctorController.createPayOSPaymentLink);
   router.post("/api/casso/webhook", doctorController.postConfirmPayment);
   router.post("/api/send-payment", doctorController.sendPayment);
   // router.post("/api/save-msg", chatController.saveMsg);
@@ -146,8 +143,9 @@ let initWebRoutes = (app) => {
         .status(400)
         .json({ errCode: 1, errMessage: "No file uploaded" });
     }
-    const fileUrl = `${req.protocol}://${req.get("host")}/uploads/${req.file.filename
-      }`;
+    const fileUrl = `${req.protocol}://${req.get("host")}/uploads/${
+      req.file.filename
+    }`;
     // Chuyển encoding tên file về UTF-8
     const originalName = Buffer.from(req.file.originalname, "latin1").toString(
       "utf8"

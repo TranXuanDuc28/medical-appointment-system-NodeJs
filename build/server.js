@@ -4,6 +4,7 @@ var _express = _interopRequireDefault(require("express"));
 var _bodyParser = _interopRequireDefault(require("body-parser"));
 var _viewEngine = _interopRequireDefault(require("./config/viewEngine"));
 var _web = _interopRequireDefault(require("./route/web"));
+var _cookieParser = _interopRequireDefault(require("cookie-parser"));
 var _connectDB = _interopRequireDefault(require("./config/connectDB"));
 var _http = _interopRequireDefault(require("http"));
 var _index = require("./socket/index.js");
@@ -25,6 +26,7 @@ app.use(function (req, res, next) {
   // Set to true if you need the website to include cookies in the requests sent
   // to the API (e.g. in case you use sessions)
   res.setHeader("Access-Control-Allow-Credentials", true);
+  res.setHeader("Access-Control-Allow-Headers", "X-Requested-With, content-type, Authorization, Origin, Accept");
 
   // Pass to next layer of middleware
   next();
@@ -38,6 +40,7 @@ app.use(_bodyParser["default"].urlencoded({
   limit: "50mb",
   extended: true
 }));
+app.use((0, _cookieParser["default"])());
 (0, _viewEngine["default"])(app);
 (0, _web["default"])(app);
 

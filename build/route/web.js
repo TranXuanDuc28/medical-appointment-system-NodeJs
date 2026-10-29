@@ -90,12 +90,13 @@ var initWebRoutes = function initWebRoutes(app) {
   router.post("/api/send-remedy", _doctorControllers["default"].sendRemedy);
   router.post("/api/update-medical-appointment-status", _doctorControllers["default"].postMedicalAppointmentStatus);
   // Add the Casso payment transaction API endpoint
-
   router.get("/api/check-paid", _doctorControllers["default"].getListGDPR);
   // Medicine routes
   router.get("/api/get-medicines", _medicineController["default"].getAllMedicine);
 
-  // Casso webhook: cập nhật trạng thái booking khi nhận được giao dịch thanh toán
+  // PayOS & Casso webhook: cập nhật trạng thái booking khi nhận được giao dịch thanh toán
+  router.post("/api/payos/webhook", _doctorControllers["default"].postConfirmPayment);
+  router.post("/api/payos/create-payment-link", _doctorControllers["default"].createPayOSPaymentLink);
   router.post("/api/casso/webhook", _doctorControllers["default"].postConfirmPayment);
   router.post("/api/send-payment", _doctorControllers["default"].sendPayment);
   // router.post("/api/save-msg", chatController.saveMsg);

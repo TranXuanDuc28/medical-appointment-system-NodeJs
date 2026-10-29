@@ -248,7 +248,7 @@ var getAllHandBook = function getAllHandBook(lang) {
             if (data && data.length > 0) {
               data.map(function (item) {
                 if (item.image) {
-                  item.image = new Buffer(item.image, "base64").toString("binary");
+                  item.image = Buffer.from(item.image, "base64").toString("binary");
                 }
                 return item;
               });
@@ -326,7 +326,7 @@ var getDetailHandBookById = function getDetailHandBookById(id, lang) {
             }
             // Convert image from base64
             if (handbook.image) {
-              handbook.image = new Buffer(handbook.image, "base64").toString("binary");
+              handbook.image = Buffer.from(handbook.image, "base64").toString("binary");
             }
             // Parse authors and reviewers as arrays if they're stored as JSON strings
             try {
@@ -423,7 +423,7 @@ var getRelatedHandBooks = function getRelatedHandBooks(currentId) {
             if (data && data.length > 0) {
               data.map(function (item) {
                 if (item.image) {
-                  item.image = new Buffer(item.image, "base64").toString("binary");
+                  item.image = Buffer.from(item.image, "base64").toString("binary");
                 }
                 return item;
               });

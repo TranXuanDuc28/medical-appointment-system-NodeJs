@@ -60,6 +60,9 @@ module.exports = function (sequelize, DataTypes) {
           foreignKey: "patientId",
           as: "patientData"
         });
+        User.belongsTo(models.Group, {
+          foreignKey: "groupId"
+        });
       }
     }]);
   }(Model);
@@ -73,7 +76,8 @@ module.exports = function (sequelize, DataTypes) {
     gender: DataTypes.STRING,
     image: DataTypes.STRING,
     roleId: DataTypes.STRING,
-    positionId: DataTypes.STRING
+    positionId: DataTypes.STRING,
+    groupId: DataTypes.INTEGER
   }, {
     sequelize: sequelize,
     modelName: "User"

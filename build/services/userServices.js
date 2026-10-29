@@ -86,7 +86,7 @@ var handleUserLogin = function handleUserLogin(email, password) {
             }
             _context2.n = 2;
             return _index["default"].User.findOne({
-              attributes: ["id", "email", "roleId", "firstName", "lastName", "password", "image"],
+              attributes: ["id", "email", "roleId", "firstName", "lastName", "password", "image", "groupId"],
               where: {
                 email: email
               },
@@ -98,8 +98,18 @@ var handleUserLogin = function handleUserLogin(email, password) {
                 model: _index["default"].AllCode,
                 as: "positionData",
                 attributes: ["valueEn", "valueVi"]
+              }, {
+                model: _index["default"].Group,
+                attributes: ["id", "name", "description"],
+                include: [{
+                  model: _index["default"].Role,
+                  attributes: ["id", "url", "description"],
+                  through: {
+                    attributes: []
+                  }
+                }]
               }],
-              raw: true,
+              raw: false,
               nest: true
             });
           case 2:
@@ -112,7 +122,7 @@ var handleUserLogin = function handleUserLogin(email, password) {
                 delete users.password;
                 //Nếu users là object (findOne), chuyển image sang binary string
                 if (users.image) {
-                  users.image = new Buffer(users.image, "base64").toString("binary");
+                  users.image = Buffer.from(users.image, "base64").toString("binary");
                 }
                 userData.users = users;
               } else {

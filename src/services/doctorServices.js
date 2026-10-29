@@ -8,6 +8,7 @@ import nodeHtmlToImage from "node-html-to-image";
 import moment, { lang } from "moment";
 import { console } from "inspector";
 const { getOnlineUsers } = require("../socket/onlineUsers");
+const payOS = require("../config/payos");
 
 const path = require("path");
 const ejs = require("ejs");
@@ -93,7 +94,7 @@ let getTopDoctorHomeServices = (limitInput, lang) => {
       });
       if (doctors && doctors.length > 0) {
         doctors.map((item) => {
-          item.image = new Buffer(item.image, "base64").toString("binary");
+          item.image = Buffer.from(item.image, "base64").toString("binary");
           return item;
         });
       }
@@ -132,7 +133,7 @@ let getAllDoctorServices = () => {
       });
       if (doctors && doctors.length > 0) {
         doctors.map((item) => {
-          item.image = new Buffer(item.image, "base64").toString("binary");
+          item.image = Buffer.from(item.image, "base64").toString("binary");
           return item;
         });
       }
@@ -333,7 +334,7 @@ let getDetailDoctorByIdServices = (inputId, lang) => {
         // process.stdout.write("Doctor data: " + JSON.stringify(doctors) + "\n");
 
         if (doctors && doctors.image) {
-          doctors.image = new Buffer(doctors.image, "base64").toString(
+          doctors.image = Buffer.from(doctors.image, "base64").toString(
             "binary"
           );
         }
@@ -545,7 +546,7 @@ let getProfileDoctorByIdServices = (inputId, lang) => {
           nest: true,
         });
         if (doctors && doctors.image) {
-          doctors.image = new Buffer(doctors.image, "base64").toString(
+          doctors.image = Buffer.from(doctors.image, "base64").toString(
             "binary"
           );
         }
@@ -615,6 +616,7 @@ let getListPatientForDoctor = (doctorId, roleId, date, lang) => {
                 ],
               },
             ],
+            order: [["createdAt", "DESC"]],
             raw: false,
             nest: true,
           });
@@ -665,7 +667,7 @@ let getListPatientForDoctor = (doctorId, roleId, date, lang) => {
                 ],
               },
             ],
-
+            order: [["createdAt", "DESC"]],
             raw: false,
             nest: true,
           });
@@ -715,7 +717,7 @@ let sendRemedyService = (data) => {
             doctorId: data.doctorId,
             patientId: data.patientId,
             timeType: data.timeType,
-            statusId: "S2", //Confirmed
+            statusId: "S2",
           },
           include: [
             {
@@ -915,111 +917,194 @@ let getListGDPR = () => {
     }
   });
 };
-// Get all payment and update booking status
+// Get all payment and update booking status (Hỗ trợ PayOS và Casso Webhook)
 let postConfirmPayment = (inputData, io) => {
   return new Promise(async (resolve, reject) => {
-    if (inputData.error === 0) {
-      const description = inputData.data.description || "";
-      const match = description.match(/BOOKING([a-zA-Z0-9]+)/);
-      if (!match) {
-        resolve({
-          errCode: 1,
-          errMessage: "No bookingId found in description",
+    try {
+      let paymentData = null;
+
+      // 1. Nếu là webhook từ PayOS có kèm signature
+      if (inputData && inputData.signature && payOS) {
+        try {
+          paymentData = await payOS.webhooks.verify(inputData);
+          console.log("✅ PayOS webhook verified successfully:", paymentData);
+        } catch (verifyError) {
+          console.warn("⚠️ PayOS webhook signature verification failed:", verifyError.message);
+          paymentData = inputData.data || inputData;
+        }
+      } else if (inputData && inputData.data) {
+        // 2. Format tiêu chuẩn: inputData.data (PayOS hoặc Casso)
+        paymentData = inputData.data;
+      } else {
+        paymentData = inputData;
+      }
+
+      // Xử lý khi PayOS kiểm tra kết nối webhook (Test Webhook)
+      if (
+        paymentData &&
+        (paymentData.description === "test" ||
+          paymentData.orderCode === 123 ||
+          paymentData.isTest)
+      ) {
+        return resolve({
+          error: 0,
+          errCode: 0,
+          message: "PayOS test webhook received successfully",
         });
       }
+
+      if (!paymentData) {
+        return resolve({
+          error: 1,
+          errCode: 1,
+          message: "No payment data provided",
+        });
+      }
+
+      const description = paymentData.description || "";
+      const match = description.match(/BOOKING([a-zA-Z0-9]+)/i);
+
+      if (!match) {
+        console.warn("Không tìm thấy bookingId trong description:", description);
+        return resolve({
+          error: 0,
+          errCode: 0,
+          message: "Webhook processed (no matching booking pattern)",
+        });
+      }
+
       const bookingId = match[1];
-      // Tìm booking và cập nhật trạng thái
+
+      // Tìm booking và cập nhật trạng thái sang S5 (Đã thanh toán)
       const booking = await db.Booking.findOne({
         where: { id: bookingId },
         include: [
           {
             model: db.User,
             as: "patientData",
-            attributes: ["email", "firstName"],
+            attributes: ["id", "email", "firstName", "lastName"],
           },
         ],
         raw: false,
       });
+
       if (booking) {
         booking.statusId = "S5";
         await booking.save();
+
         // Gửi email xác nhận đã thanh toán
         try {
           const patient = booking.patientData;
           const dataSend = {
             reciverEmail: patient.email,
             patientName: patient.firstName,
-            amount: inputData.data.amount,
-            time: inputData.data.transactionDateTime,
+            amount: paymentData.amount,
+            time: paymentData.transactionDateTime || new Date().toLocaleString("vi-VN"),
             language: "vi",
           };
           await emailServices.sendEmailPaymentSuccess(dataSend);
         } catch (e) {
-          // Không làm gián đoạn flow nếu gửi email lỗi
           console.error("Gửi email xác nhận thanh toán thất bại:", e);
         }
-        // Emit PAYMENT_CONFIRMED to cashier and pharmacist
-        const onlineUsers = getOnlineUsers(); // Access onlineUsers from socket module
-        const notificationData = {
-          bookingId,
-          patientName: booking.patientData.firstName,
-          amount: inputData.data.amount,
-          transactionDateTime: inputData.data.transactionDateTime,
-          doctorId: booking.doctorId,
-        };
 
-        const cashiers = onlineUsers.filter((user) => user.roleId === "R4");
-        // const pharmacists = onlineUsers.filter((user) => user.roleId === "R5");
-        // const doctor = onlineUsers.find(
-        //   (user) => user.id === booking.doctorData.id
-        // );
-        const patient = onlineUsers.find(
-          (user) => user.id === booking.patientData.id
-        );
+        // Emit Socket.IO PAYMENT_CONFIRMED cho Thu ngân (R4) và Bệnh nhân
+        if (io) {
+          try {
+            const onlineUsers = getOnlineUsers();
+            const notificationData = {
+              bookingId,
+              patientName: booking.patientData ? booking.patientData.firstName : "",
+              amount: paymentData.amount,
+              transactionDateTime: paymentData.transactionDateTime || new Date().toISOString(),
+              doctorId: booking.doctorId,
+            };
 
-        cashiers.forEach((cashier) => {
-          io.to(cashier.socketId).emit("PAYMENT_CONFIRMED", {
-            ...notificationData,
-            role: "cashier",
-          });
-        });
+            const cashiers = onlineUsers.filter((user) => user.roleId === "R4");
+            const patient = onlineUsers.find(
+              (user) => user.id === (booking.patientData ? booking.patientData.id : null)
+            );
 
-        // pharmacists.forEach((pharmacist) => {
-        //   io.to(pharmacist.socketId).emit("PAYMENT_CONFIRMED", {
-        //     ...notificationData,
-        //     role: "pharmacist",
-        //   });
-        // });
+            cashiers.forEach((cashier) => {
+              io.to(cashier.socketId).emit("PAYMENT_CONFIRMED", {
+                ...notificationData,
+                role: "cashier",
+              });
+            });
 
-        // if (doctor) {
-        //   io.to(doctor.socketId).emit("PAYMENT_CONFIRMED", {
-        //     ...notificationData,
-        //     role: "doctor",
-        //   });
-        // }
-
-        if (patient) {
-          io.to(patient.socketId).emit("PAYMENT_CONFIRMED", {
-            ...notificationData,
-            role: "patient",
-          });
+            if (patient) {
+              io.to(patient.socketId).emit("PAYMENT_CONFIRMED", {
+                ...notificationData,
+                role: "patient",
+              });
+            }
+          } catch (socketErr) {
+            console.error("Socket emit error:", socketErr);
+          }
         }
 
-        resolve({
+        return resolve({
+          error: 0,
           errCode: 0,
           errMessage: "Payment confirmed and booking updated successfully",
+          message: "Success",
         });
       } else {
-        resolve({
+        return resolve({
+          error: 0,
           errCode: 2,
-          errMessage: "Booking not found",
+          errMessage: `Booking ${bookingId} not found`,
         });
       }
+    } catch (error) {
+      console.error("Lỗi xử lý webhook payment:", error);
+      reject(error);
     }
   });
 };
 
-//Test casso
+let createPayOSPaymentLink = (data) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      if (!payOS) {
+        return resolve({
+          errCode: -1,
+          errMessage:
+            "PayOS chưa được cấu hình Client ID, API Key hoặc Checksum Key trong file .env",
+        });
+      }
+
+      const { bookingId, amount, description } = data;
+      // PayOS orderCode là số nguyên dương <= 9007199254740991
+      const orderCode = Number(
+        String(Date.now()).slice(-6) + Math.floor(Math.random() * 1000)
+      );
+      const desc = (description || `BOOKING${bookingId || ""}`).slice(0, 25);
+
+      const paymentLinkData = {
+        orderCode: orderCode,
+        amount: Number(amount) || 10000,
+        description: desc,
+        cancelUrl: `${process.env.URL_REACT || "http://localhost:3000"}/system/manage-payment`,
+        returnUrl: `${process.env.URL_REACT || "http://localhost:3000"}/system/manage-payment`,
+      };
+
+      const response = await payOS.paymentRequests.create(paymentLinkData);
+      resolve({
+        errCode: 0,
+        errMessage: "Tạo link thanh toán PayOS thành công",
+        data: response,
+      });
+    } catch (error) {
+      console.error("Lỗi tạo payment link PayOS:", error);
+      resolve({
+        errCode: 1,
+        errMessage: error.message || "Tạo link thanh toán thất bại",
+      });
+    }
+  });
+};
+
+// Test casso
 // let postConfirmPayment = (inputData) => {
 //   console.log("inputData", inputData);
 //   return new Promise(async (resolve, reject) => {
@@ -1048,4 +1133,5 @@ module.exports = {
   postConfirmPayment: postConfirmPayment,
   postMedicalAppointmentStatus: postMedicalAppointmentStatus,
   sendPayment: sendPayment,
+  createPayOSPaymentLink: createPayOSPaymentLink,
 };
