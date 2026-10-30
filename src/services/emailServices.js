@@ -91,23 +91,39 @@ let getBodyHTMLEmailRemedy = (dataSend) => {
     `;
   }
 
+  const examFeeText = dataSend.examinationPrice ? `${Number(dataSend.examinationPrice).toLocaleString("vi-VN")} đ` : "";
+  const medFeeText = dataSend.medicinePrice ? `${Number(dataSend.medicinePrice).toLocaleString("vi-VN")} đ` : "0 đ";
+  const totalFeeText = dataSend.amount ? `${Number(dataSend.amount).toLocaleString("vi-VN")} đ` : "";
+
   if (dataSend.language === "vi") {
     result = `
-      <h3>Xin chào ${dataSend.patientInfo.fullName}!</h3>
-      <p>Bạn nhận được email này vì đã đặt lịch khám bệnh trên Booking Care.</p>
-      <p><b>Thông tin đơn thuốc: (Nhấn vào file đính kèm để xem)</b></p>
-      <div><b>Thời gian:</b> ${dataSend.time}</div>
-      <div><b>Bác sĩ:</b> ${dataSend.doctorName}</div>
+      <h3>Xin chào ${dataSend.patientInfo?.fullName || "Quý khách"}!</h3>
+      <p>Bạn nhận được email này vì đã hoàn thành buổi khám bệnh trên hệ thống Booking Care.</p>
+      <p><b>Chi tiết kết quả & Chi phí khám chữa bệnh:</b></p>
+      <div><b>Thời gian khám:</b> ${dataSend.time}</div>
+      <div><b>Bác sĩ khám:</b> ${dataSend.doctorName}</div>
+      <div style="margin: 12px 0; padding: 10px 15px; background-color: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px;">
+        ${examFeeText ? `<div>• Phí khám chuyên khoa: <b>${examFeeText}</b></div>` : ''}
+        <div>• Tiền thuốc điều trị: <b>${medFeeText}</b></div>
+        <div style="font-size: 16px; color: #d32f2f; margin-top: 6px;">• <b>TỔNG VIỆN PHÍ CẦN THANH TOÁN: ${totalFeeText}</b></div>
+      </div>
+      <p><i>(Toa thuốc chi tiết được đính kèm trong tệp PDF đính kèm bên dưới)</i></p>
       ${paymentSection}
-      <div style="margin-top: 15px;">Xin chân thành cảm ơn!</div>
+      <div style="margin-top: 15px;">Xin chân thành cảm ơn! Chúc bạn mau chóng bình phục sức khỏe!</div>
     `;
   } else {
     result = `
-      <h3>Dear ${dataSend.patientInfo.fullName}!</h3>
-      <p>You received this email because you booked a medical appointment on Booking Care.</p>
-      <p><b>Prescription Information: (Click attached file to view)</b></p>
+      <h3>Dear ${dataSend.patientInfo?.fullName || "Valued Patient"}!</h3>
+      <p>You received this email because you completed a medical appointment on Booking Care.</p>
+      <p><b>Medical Examination & Bill Details:</b></p>
       <div><b>Time:</b> ${dataSend.time}</div>
       <div><b>Doctor:</b> ${dataSend.doctorName}</div>
+      <div style="margin: 12px 0; padding: 10px 15px; background-color: #f8f9fa; border: 1px solid #e9ecef; border-radius: 6px;">
+        ${examFeeText ? `<div>• Consultation Fee: <b>${examFeeText}</b></div>` : ''}
+        <div>• Medication Fee: <b>${medFeeText}</b></div>
+        <div style="font-size: 16px; color: #d32f2f; margin-top: 6px;">• <b>TOTAL HOSPITAL BILL: ${totalFeeText}</b></div>
+      </div>
+      <p><i>(Detailed medical prescription is attached as a PDF file)</i></p>
       ${dataSend.payosUrl ? `
         <div style="margin: 20px 0;">
           <p><b>Please click the button below to pay online (supports fast VietQR transfer or local bank card):</b></p>
@@ -121,7 +137,7 @@ let getBodyHTMLEmailRemedy = (dataSend) => {
           <p><b>Notice:</b> The manual bank transfer (Casso) is currently undergoing maintenance. Please contact the clinic for more details.</p>
         </div>
       `}
-      <div style="margin-top: 15px;">Thank you very much!</div>
+      <div style="margin-top: 15px;">Thank you very much! Wishing you good health!</div>
     `;
   }
 

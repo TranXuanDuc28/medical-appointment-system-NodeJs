@@ -34,6 +34,13 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "patientId",
         as: "patientData",
       });
+      User.hasMany(models.History, {
+        foreignKey: "doctorId",
+      });
+      User.hasMany(models.History, {
+        foreignKey: "patientId",
+        as: "patientHistory",
+      });
       User.belongsTo(models.Group, { foreignKey: "groupId" });
     }
   }

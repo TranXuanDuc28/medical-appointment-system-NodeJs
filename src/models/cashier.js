@@ -18,8 +18,18 @@ module.exports = (sequelize, DataTypes) => {
     {
       bookingId: DataTypes.STRING,
       cashier: DataTypes.STRING,
-      date: DataTypes.INTEGER,
+      date: DataTypes.STRING,
       totalPrire: DataTypes.STRING,
+      totalPrice: {
+        type: DataTypes.VIRTUAL,
+        get() {
+          return this.getDataValue("totalPrire");
+        },
+        set(value) {
+          this.setDataValue("totalPrire", String(value));
+        },
+      },
+      paymentMethod: DataTypes.STRING,
       description: DataTypes.STRING,
     },
     {

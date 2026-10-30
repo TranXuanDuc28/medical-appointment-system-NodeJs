@@ -573,17 +573,23 @@ let getListPatientForDoctor = (doctorId, roleId, date, lang) => {
       } else {
         let data = {};
         if (roleId === "R4") {
-          data = await db.Booking.findAll({
-            where: {
-              statusId: {
-                [Op.in]: ["S5", "S6"],
-              },
+          let whereClause = {
+            statusId: {
+              [Op.in]: ["S5", "S6"],
             },
+          };
+          if (date && date !== "ALL" && date !== "all") {
+            whereClause.date = date;
+          }
+
+          data = await db.Booking.findAll({
+            where: whereClause,
             include: [
               {
                 model: db.User,
                 as: "patientData",
                 attributes: [
+                  "id",
                   "firstName",
                   "lastName",
                   "email",
@@ -605,14 +611,36 @@ let getListPatientForDoctor = (doctorId, roleId, date, lang) => {
                 attributes: ["valueEn", "valueVi"],
               },
               {
+                model: db.AllCode,
+                as: "statusDataPatient",
+                attributes: ["valueEn", "valueVi"],
+              },
+              {
+                model: db.Cashier,
+                as: "bookingData",
+                required: false,
+              },
+              {
                 model: db.Doctor_Infor,
-                where: { lang: lang },
                 as: "doctorInforData",
+                required: false,
+                where: { lang: lang || "vi" },
                 include: [
                   {
                     model: db.User,
                     as: "doctorData",
                     attributes: ["firstName", "lastName"],
+                  },
+                  {
+                    model: db.AllCode,
+                    as: "priceTypeData",
+                    attributes: ["valueEn", "valueVi"],
+                  },
+                  {
+                    model: db.Specialty_Translation,
+                    as: "specialty",
+                    required: false,
+                    where: { lang: lang || "vi" },
                   },
                 ],
               },
@@ -656,6 +684,11 @@ let getListPatientForDoctor = (doctorId, roleId, date, lang) => {
                 attributes: ["valueEn", "valueVi"],
               },
               {
+                model: db.AllCode,
+                as: "statusDataPatient",
+                attributes: ["valueEn", "valueVi"],
+              },
+              {
                 model: db.Doctor_Infor,
                 where: { lang: lang },
                 as: "doctorInforData",
@@ -664,6 +697,11 @@ let getListPatientForDoctor = (doctorId, roleId, date, lang) => {
                     model: db.User,
                     as: "doctorData",
                     attributes: ["firstName", "lastName"],
+                  },
+                  {
+                    model: db.AllCode,
+                    as: "priceTypeData",
+                    attributes: ["valueEn", "valueVi"],
                   },
                 ],
               },
@@ -730,6 +768,11 @@ let sendRemedyService = (data) => {
                   as: "doctorData",
                   attributes: ["firstName", "lastName", "phoneNumber"],
                 },
+                {
+                  model: db.AllCode,
+                  as: "priceTypeData",
+                  attributes: ["valueEn", "valueVi"],
+                },
               ],
             },
             {
@@ -750,13 +793,59 @@ let sendRemedyService = (data) => {
         }
 
         let timeString = buildTimeBooking(appointmentData);
-        let doctorName = `${appointmentData.doctorInforData.doctorData.firstName} ${appointmentData.doctorInforData.doctorData.lastName}`;
+        let doctorName = `${appointmentData.doctorInforData?.doctorData?.firstName || ""} ${appointmentData.doctorInforData?.doctorData?.lastName || ""}`.trim();
+
+        // 1. Tính toán chi phí chính xác
+        const examinationFee = Number(
+          data.examinationPrice ||
+          appointmentData.doctorInforData?.priceTypeData?.valueVi ||
+          300000
+        );
+        const medicineFee = Number(data.medicinePrice) || (data.prescription || []).reduce(
+          (sum, med) => sum + (Number(med.total) || (Number(med.quantity || 1) * Number(med.price || 0))),
+          0
+        );
+        const totalFee = Number(data.totalPrice) || (examinationFee + medicineFee);
+
+        // 2. Tạo hoặc cập nhật hóa đơn viện phí tạm thời cho quầy Thu ngân
+        try {
+          const [cashierRecord, created] = await db.Cashier.findOrCreate({
+            where: { bookingId: String(appointment.id) },
+            defaults: {
+              bookingId: String(appointment.id),
+              cashier: "Chờ thanh toán",
+              date: Math.floor(Date.now() / 1000),
+              totalPrire: String(totalFee),
+              paymentMethod: "CASH",
+              description: JSON.stringify({
+                examinationFee: examinationFee,
+                medicineFee: medicineFee,
+                totalFee: totalFee,
+                medicinesCount: (data.prescription || []).length,
+              }),
+            },
+          });
+          if (!created) {
+            cashierRecord.totalPrire = String(totalFee);
+            cashierRecord.description = JSON.stringify({
+              examinationFee: examinationFee,
+              medicineFee: medicineFee,
+              totalFee: totalFee,
+              medicinesCount: (data.prescription || []).length,
+            });
+            await cashierRecord.save();
+          }
+        } catch (cashierErr) {
+          console.error("Error creating/updating Cashier record in sendRemedyService:", cashierErr);
+        }
 
         // Prepare job data for worker to process asynchronously
         const jobData = {
           ...data,
           bookingId: appointment.id,
-          amount: data.totalPrice,
+          amount: totalFee, // Số tiền PayOS thu = Tiền khám + Tiền thuốc
+          examinationPrice: examinationFee,
+          medicinePrice: medicineFee,
           time: timeString,
           doctorName: doctorName,
           pdfData: {
@@ -779,8 +868,10 @@ let sendRemedyService = (data) => {
             allergies: data.examInfo.allergy,
             advice: data.examInfo.advice,
             treatment: data.examInfo.conclusion,
-            medicines: data.prescription,
-            totalPrice: `${data.totalPrice} VND`,
+            medicines: data.prescription || [],
+            examinationFee: `${examinationFee.toLocaleString("vi-VN")} VND`,
+            medicineFee: `${medicineFee.toLocaleString("vi-VN")} VND`,
+            totalPrice: `${totalFee.toLocaleString("vi-VN")} VND`,
             doctorName: doctorName,
           }
         };
@@ -854,13 +945,46 @@ let sendPayment = (data, io) => {
           appointment.statusId = "S5";
           await appointment.save();
 
-          let cashierRecord = await db.Cashier.create({
-            cashier: data.cashier,
-            date: data.date,
-            totalPrice: data.totalPrice,
-            description: data.description,
-            bookingId: appointment.id,
+          let [cashierRecord, created] = await db.Cashier.findOrCreate({
+            where: { bookingId: String(appointment.id) },
+            defaults: {
+              cashier: data.cashier || "Thu ngân",
+              date: String(data.date || Date.now()),
+              totalPrire: String(data.totalPrice || data.totalPrire || 0),
+              paymentMethod: data.paymentMethod || "CASH",
+              description: JSON.stringify({
+                examinationFee: Number(data.examinationPrice || data.totalPrice || 0),
+                medicineFee: Number(data.medicinePrice || 0),
+                totalFee: Number(data.totalPrice || 0),
+                note: data.description || "Thanh toán viện phí",
+              }),
+              bookingId: String(appointment.id),
+            },
           });
+          if (!created) {
+            let breakdown = {};
+            if (cashierRecord.description) {
+              try {
+                breakdown = JSON.parse(cashierRecord.description);
+              } catch (e) {}
+            }
+            const examPrice = data.examinationPrice !== undefined ? Number(data.examinationPrice) : (breakdown.examinationFee !== undefined ? Number(breakdown.examinationFee) : Number(data.totalPrice || 0));
+            const medPrice = data.medicinePrice !== undefined ? Number(data.medicinePrice) : (breakdown.medicineFee !== undefined ? Number(breakdown.medicineFee) : 0);
+            const finalTotal = Number(data.totalPrice || (examPrice + medPrice));
+
+            cashierRecord.cashier = data.cashier || "Thu ngân";
+            cashierRecord.date = String(data.date || Date.now());
+            cashierRecord.totalPrire = String(finalTotal);
+            cashierRecord.paymentMethod = data.paymentMethod || "CASH";
+            cashierRecord.description = JSON.stringify({
+              examinationFee: examPrice,
+              medicineFee: medPrice,
+              totalFee: finalTotal,
+              medicinesCount: breakdown.medicinesCount || 0,
+              note: data.description || breakdown.note || "Thanh toán viện phí",
+            });
+            await cashierRecord.save();
+          }
 
           // Emit PAYMENT_CONFIRMED to cashier and patient
           if (io) {
@@ -967,6 +1091,35 @@ let updateBookingPaymentStatus = async (bookingId, amount, transactionDateTime, 
   if (booking) {
     booking.statusId = "S5";
     await booking.save();
+
+    // Lưu thông tin thanh toán vào bảng Cashier nếu chưa có
+    try {
+      const [cashierRecord, created] = await db.Cashier.findOrCreate({
+        where: { bookingId: String(booking.id) },
+        defaults: {
+          cashier: "Cổng PayOS / Casso",
+          date: String(transactionDateTime || Date.now()),
+          totalPrire: String(amount),
+          paymentMethod: "TRANSFER_QR",
+          description: JSON.stringify({
+            examinationFee: Number(amount),
+            medicineFee: 0,
+            totalFee: Number(amount),
+            note: `Thanh toán trực tuyến mã BOOKING${booking.id}`,
+          }),
+          bookingId: String(booking.id),
+        },
+      });
+      if (!created) {
+        cashierRecord.cashier = "Cổng PayOS / Casso";
+        cashierRecord.date = String(transactionDateTime || Date.now());
+        cashierRecord.totalPrire = String(amount);
+        cashierRecord.paymentMethod = "TRANSFER_QR";
+        await cashierRecord.save();
+      }
+    } catch (cashierErr) {
+      console.warn("Không thể tạo Cashier record cho booking:", cashierErr.message);
+    }
     // Gửi email xác nhận đã thanh toán
     try {
       const patient = booking.patientData;
