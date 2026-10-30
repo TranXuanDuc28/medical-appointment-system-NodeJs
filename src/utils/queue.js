@@ -106,6 +106,14 @@ export const initQueue = () => {
       }
     );
 
+    emailQueue.on("error", (err) => {
+      console.warn("⚠️ BullMQ Queue connection warning:", err.message);
+    });
+
+    emailWorker.on("error", (err) => {
+      console.warn("⚠️ BullMQ Worker connection warning:", err.message);
+    });
+
     emailWorker.on("completed", (job) => {
       console.log(`[Queue Worker] Job ${job.id} completed successfully.`);
     });

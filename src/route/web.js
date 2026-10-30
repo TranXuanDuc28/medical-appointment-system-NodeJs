@@ -198,6 +198,7 @@ let initWebRoutes = (app) => {
     packageController.getFilterOptions
   );
   router.get("/api/packages/search", cacheMiddleware(60), packageController.searchPackages);
+  router.get("/api/packages/booking-slots", packageController.getPackageBookingSlots);
   router.get("/api/packages/:id", cacheMiddleware(300), packageController.getPackageById);
   router.post("/api/packages/create", (req, res, next) => {
     invalidateCache(["/api/packages/all", "/api/packages/featured", "/api/packages/filter-options"]);
