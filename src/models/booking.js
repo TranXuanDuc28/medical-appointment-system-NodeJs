@@ -1,62 +1,35 @@
 "use strict";
-const { Model } = require("sequelize");
 module.exports = (sequelize, DataTypes) => {
-  class Booking extends Model {
-    /**
-     * Helper method for defining associations.
-     * This method is not a part of Sequelize lifecycle.
-     * The `models/index` file will call this method automatically.
-     */
-    static associate(models) {
-      // define association here
-      Booking.belongsTo(models.User, {
-        foreignKey: "patientId",
-        targetKey: "id",
-        as: "patientData",
-      });
-      Booking.belongsTo(models.User, {
-        foreignKey: "doctorId",
-        targetKey: "id",
-        as: "doctorData",
-      });
-      Booking.belongsTo(models.AllCode, {
-        foreignKey: "timeType",
-        targetKey: "keyMap",
-        as: "timeTypeDataPatient",
-      });
-      Booking.belongsTo(models.AllCode, {
-        foreignKey: "statusId",
-        targetKey: "keyMap",
-        as: "statusDataPatient",
-      });
-      Booking.hasOne(models.Cashier, {
-        foreignKey: "bookingId",
-        as: "bookingData",
-      });
-      Booking.belongsTo(models.Doctor_Infor, {
-        foreignKey: "doctorId",
-        targetKey: "doctorId",
-        as: "doctorInforData",
-      });
-    }
-  }
-  Booking.init(
+  const Booking = sequelize.define(
+    "Booking",
     {
-      id: {
-        type: DataTypes.STRING,
-        primaryKey: true,
-      },
-      statusId: DataTypes.STRING,
-      doctorId: DataTypes.INTEGER,
-      patientId: DataTypes.INTEGER,
-      date: DataTypes.STRING,
-      timeType: DataTypes.STRING,
-      token: DataTypes.STRING,
+      code: DataTypes.STRING(16),
+      doctorId: DataTypes.BIGINT.UNSIGNED,
+      workDate: { type: DataTypes.DATEONLY, field: "work_date" },
+      timeType: { type: DataTypes.STRING(32), field: "time_code" },
+      patientId: DataTypes.BIGINT.UNSIGNED,
+      patientProfileId: DataTypes.BIGINT.UNSIGNED,
+      statusId: { type: DataTypes.STRING(32), field: "status_code" },
+      source: DataTypes.ENUM("ONLINE", "WALK_IN"),
+      symptoms: DataTypes.TEXT,
+      confirmTokenHash: DataTypes.STRING(64),
+      holdExpiresAt: DataTypes.DATE,
+      confirmedAt: DataTypes.DATE,
+      cancelledAt: DataTypes.DATE,
+      cancelReason: DataTypes.STRING,
     },
-    {
-      sequelize,
-      modelName: "Booking",
-    }
+    { tableName: "bookings" }
   );
+  Booking.associate = (models) => {
+    const ref = { targetKey: "keyMap", constraints: false };
+    Booking.belongsTo(models.User, { foreignKey: "patientId", targetKey: "id", as: "patientData" });
+    Booking.belongsTo(models.User, { foreignKey: "doctorId", targetKey: "id", as: "doctorData" });
+    Booking.belongsTo(models.PatientProfile, { foreignKey: "patientProfileId", as: "patientProfile" });
+    Booking.belongsTo(models.AllCode, { foreignKey: "timeType", as: "timeTypeDataPatient", ...ref });
+    Booking.belongsTo(models.AllCode, { foreignKey: "statusId", as: "statusDataPatient", ...ref });
+    Booking.belongsTo(models.DoctorProfile, { foreignKey: "doctorId", targetKey: "doctorId", as: "doctorInforData", constraints: false });
+    Booking.hasOne(models.Payment, { foreignKey: "bookingId", as: "bookingData" });
+    Booking.hasOne(models.MedicalRecord, { foreignKey: "bookingId", as: "medicalRecord" });
+  };
   return Booking;
 };

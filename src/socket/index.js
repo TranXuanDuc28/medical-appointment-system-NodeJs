@@ -1,7 +1,8 @@
 const socket = require("socket.io");
 const { addUser, removeUser, getOnlineUsers } = require("./onlineUsers");
 const { saveMsg, delMsg } = require("../services/chatServices");
-const db = require("../models/index");
+const { resolveToken } = require("../middleware/accessControl");
+const { isOriginAllowed } = require("../config/cors");
 require("dotenv").config();
 const {
   getScheduleDoctorByDateServices,
@@ -9,168 +10,214 @@ const {
 } = require("../services/doctorServices");
 const { postBookAppointmentServices } = require("../services/patientServices");
 
+const AUTHED_ROOM = "authed";
+
+/** Lấy JWT từ handshake: ưu tiên auth.token, sau đó cookie `jwt` (httpOnly). */
+const readToken = (handshake) => {
+  if (handshake.auth && typeof handshake.auth.token === "string") {
+    return handshake.auth.token;
+  }
+  const cookie = handshake.headers && handshake.headers.cookie;
+  if (!cookie) return null;
+  const match = cookie.split(";").map((c) => c.trim()).find((c) => c.startsWith("jwt="));
+  return match ? decodeURIComponent(match.slice(4)) : null;
+};
+
+/** Giới hạn tần suất sự kiện theo từng socket (chống spam BOOK_SLOT...). */
+const makeLimiter = (max, windowMs) => {
+  let hits = [];
+  return () => {
+    const now = Date.now();
+    hits = hits.filter((t) => now - t < windowMs);
+    if (hits.length >= max) return false;
+    hits.push(now);
+    return true;
+  };
+};
+
+const isId = (v) => (typeof v === "number" && Number.isFinite(v)) || (typeof v === "string" && /^\d+$/.test(v));
+const isStr = (v, max = 64) => typeof v === "string" && v.length > 0 && v.length <= max;
+
 let socketInit = (app, server) => {
   const io = socket(server, {
     cors: {
-      origin: (origin, callback) => {
-        if (!origin || origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:") || origin.includes("192.168.")) {
-          callback(null, true);
-        } else {
-          callback(null, process.env.URL_REACT);
-        }
-      },
+      origin: (origin, callback) => callback(null, isOriginAllowed(origin)),
       methods: ["GET", "POST"],
       credentials: true,
     },
+    maxHttpBufferSize: 1e6,
   });
 
   // Make io accessible in controllers
   app.set("socketio", io);
 
-  io.on("connection", (socket) => {
-    // Handle user connection
-    socket.on("ADD_USER", (user) => {
-      const currentUsers = addUser(user, socket.id);
-      io.emit("USER_ADDED", currentUsers);
-    });
-    // Chat: Send and receive messages
-    socket.on("SEND_MSG", async (msg) => {
-      const isSaved = await saveMsg(msg);
-      io.to(msg.receiver.socketId)
-        .to(msg.sender.socketId)
-        .emit("RECEIVED_MSG", isSaved);
-    });
-    // Chat: Delete message
-    socket.on("DELETE_MSG", async ({ msgId, receiverId, userId }) => {
-      console.log("data input", msgId, receiverId, userId);
-      try {
-        await delMsg({ msgId, userId });
-        // Find receiver and sender sockets
-        const onlineUsers = getOnlineUsers();
-        const receiver = onlineUsers.find((u) => u.id === receiverId);
-        const sender = onlineUsers.find((u) => u.id === userId);
-        console.log("receiver", receiver);
-        console.log("sender", sender);
+  // Xác thực JWT khi handshake. Khách (chưa đăng nhập) vẫn kết nối được để xem/đặt slot
+  // nhưng không dùng được các sự kiện cần danh tính (chat, thanh toán...).
+  io.use(async (sock, next) => {
+    const token = readToken(sock.handshake);
+    if (!token) return next();
+    try {
+      const user = await resolveToken(token); // kiểm tra cả khoá tài khoản / tokenVersion / quyền hiện tại
+      if (user) {
+        sock.user = user;
+      } else if (sock.handshake.auth && sock.handshake.auth.token) {
+        return next(new Error("UNAUTHORIZED"));
+      }
+    } catch (e) {
+      console.error("[Socket] lỗi xác thực:", e.message);
+      return next(new Error("AUTH_UNAVAILABLE"));
+    }
+    next();
+  });
 
-        // Notify both sender and receiver
-        if (receiver && sender) {
-          console.log("Co roi");
-          io.to(receiver.socketId)
-            .to(sender.socketId)
-            .emit("DELETED_MSG", { msgId });
-        } else {
-          socket.emit("DELETED_MSG", { msgId });
-        }
+  io.on("connection", (socket) => {
+    const requireAuth = (permission) => {
+      if (!socket.user) {
+        socket.emit("ERROR", { message: "Bạn cần đăng nhập" });
+        return false;
+      }
+      if (permission && !socket.user.permissions.has(permission)) {
+        socket.emit("ERROR", { message: "Bạn không có quyền thực hiện thao tác này" });
+        return false;
+      }
+      return true;
+    };
+    const bookLimiter = makeLimiter(5, 60 * 1000);
+
+    if (socket.user) {
+      socket.join(`user:${socket.user.id}`);
+      socket.join(AUTHED_ROOM);
+    }
+
+    // Handle user connection – id/roleId luôn lấy từ token, không tin dữ liệu client gửi lên
+    socket.on("ADD_USER", (user) => {
+      if (!requireAuth()) return;
+      const safeUser = {
+        ...(user && typeof user === "object" ? user : {}),
+        id: socket.user.id,
+        email: socket.user.email,
+        roleId: socket.user.roleId,
+      };
+      const currentUsers = addUser(safeUser, socket.id);
+      io.to(AUTHED_ROOM).emit("USER_ADDED", currentUsers);
+    });
+
+    // Chat: gửi tin tới room user:<id> (không dùng socketId do client cung cấp)
+    socket.on("SEND_MSG", async (msg) => {
+      if (!requireAuth()) return;
+      try {
+        if (!msg || !msg.receiver || !isId(msg.receiver._id || msg.receiver.id)) return;
+        const payload = {
+          ...msg,
+          sender: { ...(msg.sender || {}), id: socket.user.id, email: socket.user.email },
+        };
+        const isSaved = await saveMsg(payload);
+        const receiverId = msg.receiver._id || msg.receiver.id;
+        io.to(`user:${receiverId}`)
+          .to(`user:${socket.user.id}`)
+          .emit("RECEIVED_MSG", isSaved);
       } catch (error) {
-        socket.emit("ERROR", { message: "Failed to delete message", error });
+        console.error("SEND_MSG error:", error.message);
+        socket.emit("ERROR", { message: "Không gửi được tin nhắn" });
       }
     });
-    socket.on("START_CHAT", ({ patientId, doctorId }) => {
-      // Tìm patient trong onlineUsers và cập nhật lại socketId nếu cần
-      const onlineUsers = getOnlineUsers();
-      const patient = onlineUsers.find((u) => u.id === patientId);
-      if (patient) {
-        patient.socketId = socket.id;
-        // Emit lại USER_ADDED để doctor cập nhật
-        io.emit("USER_ADDED", onlineUsers);
-      }
-    });
-    // Appointment: Join schedule room for doctor and date
-    socket.on("JOIN_ROOM", ({ doctorId, date }) => {
-      const currentRooms = Array.from(socket.rooms);
-      currentRooms.forEach((room) => {
-        if (room.startsWith("schedule:")) {
-          socket.leave(room);
+
+    // Chat: Delete message (chỉ người gửi mới xoá được)
+    socket.on("DELETE_MSG", async ({ msgId, receiverId } = {}) => {
+      if (!requireAuth()) return;
+      try {
+        const result = await delMsg({ msgId, userId: socket.user.id });
+        if (!result || result.errCode !== 0) {
+          return socket.emit("ERROR", {
+            message: (result && result.errMessage) || "Không xoá được tin nhắn",
+          });
         }
+        io.to(`user:${socket.user.id}`)
+          .to(`user:${receiverId}`)
+          .emit("DELETED_MSG", { msgId });
+      } catch (error) {
+        console.error("DELETE_MSG error:", error.message);
+        socket.emit("ERROR", { message: "Failed to delete message" });
+      }
+    });
+
+    socket.on("START_CHAT", () => {
+      // Bệnh nhân bắt đầu chat: cập nhật socketId của chính mình rồi báo danh sách online
+      if (!requireAuth()) return;
+      const me = getOnlineUsers().find((u) => String(u.id) === String(socket.user.id));
+      if (me) {
+        me.socketId = socket.id;
+        io.to(AUTHED_ROOM).emit("USER_ADDED", getOnlineUsers());
+      }
+    });
+
+    // Appointment: Join schedule room for doctor and date (khách cũng được xem slot)
+    socket.on("JOIN_ROOM", ({ doctorId, date } = {}) => {
+      if (!isId(doctorId) || !isStr(String(date), 32)) return;
+      Array.from(socket.rooms).forEach((room) => {
+        if (room.startsWith("schedule:")) socket.leave(room);
       });
-      const roomName = `schedule:${doctorId}:${date}`;
-      socket.join(roomName);
-      console.log(`Socket ${socket.id} joined room: ${roomName}`);
+      socket.join(`schedule:${doctorId}:${date}`);
     });
 
     // Appointment: Request available slots
-    socket.on("GET_SLOTS", async ({ doctorId, date }) => {
-      console.log(" start result", doctorId, date);
+    socket.on("GET_SLOTS", async ({ doctorId, date } = {}) => {
+      if (!isId(doctorId) || !isStr(String(date), 32)) return;
       try {
         const slots = await getScheduleDoctorByDateServices({ doctorId, date });
-        console.log("slots", slots);
         if (slots.errCode === 0) {
           socket.emit("SLOTS_RECEIVED", slots);
         } else {
           socket.emit("ERROR", { message: slots.errMessage });
         }
       } catch (error) {
-        console.log(error);
+        console.error("GET_SLOTS error:", error.message);
       }
     });
 
-    // Appointment: Book a slot
+    // Appointment: Book a slot.
+    // Toàn bộ logic kiểm tra chỗ trống/khoá slot nằm trong bookingService (transaction).
     socket.on("BOOK_SLOT", async (data) => {
+      if (!bookLimiter()) {
+        return socket.emit("ERROR", { message: "Bạn thao tác quá nhanh, vui lòng thử lại sau" });
+      }
       try {
         const result = await postBookAppointmentServices(data);
-        console.log("result", result);
-        if (result.errCode === 0) {
-          // Update slot status in Schedule table
-          await db.Schedule.update(
-            { status: "booked" },
-            {
-              where: {
-                doctorId: data.doctorId,
-                date: data.date,
-                timeType: data.timeType,
-              },
-            }
-          );
-
-          // Find patient and doctor socket IDs
-          const onlineUsers = getOnlineUsers();
-          const patient = onlineUsers.find((u) => u.id === data.patientId);
-          const doctor = onlineUsers.find((u) => u.id === data.doctorId);
-
-          // Broadcast slot update ONLY to clients in the specific room
-          io.to(`schedule:${data.doctorId}:${data.date}`).emit("SLOT_UPDATED", {
-            doctorId: data.doctorId,
-            date: data.date,
-            timeType: data.timeType,
-            status: "booked",
-          });
-
-          // Emit booking confirmation to patient and doctor
-          if (patient && doctor) {
-            io.to(patient.socketId)
-              .to(doctor.socketId)
-              .emit("BOOKING_CONFIRMED", {
-                ...data,
-                statusId: "S1",
-                token: result.token,
-              });
-          } else {
-            socket.emit("BOOKING_CONFIRMED", {
-              ...data,
-              statusId: "S1",
-              token: result.token,
-            });
-          }
-        } else {
-          socket.emit("ERROR", { message: result.errMessage });
+        if (result.errCode !== 0) {
+          return socket.emit("ERROR", { message: result.errMessage });
         }
+        const { slotKey } = result;
+
+        // Slot đã được cập nhật trạng thái trong transaction -> chỉ cần phát lại cho phòng
+        io.to(`schedule:${slotKey.doctorId}:${slotKey.date}`).emit("SLOT_UPDATED", {
+          doctorId: slotKey.doctorId,
+          date: slotKey.date,
+          timeType: slotKey.timeType,
+          status: result.slotStatus || "booked",
+        });
+
+        // Báo cho người đặt, bác sĩ và (nếu đang online) bệnh nhân. Không gửi token xác nhận.
+        const confirmation = {
+          doctorId: slotKey.doctorId,
+          date: slotKey.date,
+          timeType: slotKey.timeType,
+          statusId: "S1",
+          bookingId: result.bookingId,
+          holdMinutes: result.holdMinutes,
+        };
+        socket.emit("BOOKING_CONFIRMED", confirmation);
+        io.to(`user:${result.doctorId}`)
+          .to(`user:${result.patientId}`)
+          .emit("BOOKING_CONFIRMED", confirmation);
       } catch (error) {
-        socket.emit("ERROR", { message: "Failed to book slot", error });
+        console.error("BOOK_SLOT error:", error.message);
+        socket.emit("ERROR", { message: "Failed to book slot" });
       }
     });
 
-    // Payment: Confirm payment
-    // socket.on("CONFIRM_PAYMENT", async ({ appointmentId, paymentDetails }) => {
-    //   try {
-    //     const payment = await confirmPayment(appointmentId, paymentDetails);
-    //     io.to(payment.doctorSocketId)
-    //       .to(payment.patientSocketId)
-    //       .emit("PAYMENT_CONFIRMED", payment);
-    //   } catch (error) {
-    //     socket.emit("ERROR", { message: "Failed to confirm payment", error });
-    //   }
-    // });
+    // Payment: chỉ thu ngân/admin
     socket.on("SEND_PAYMENT", async (data) => {
+      if (!requireAuth("payment:confirm")) return;
       try {
         const results = await sendPayment(data, io);
         if (results.errCode === 0) {
@@ -181,14 +228,14 @@ let socketInit = (app, server) => {
           socket.emit("ERROR", { message: results.errMessage });
         }
       } catch (error) {
-        socket.emit("ERROR", { message: "Failed to send payment", error });
+        console.error("SEND_PAYMENT error:", error.message);
+        socket.emit("ERROR", { message: "Failed to send payment" });
       }
     });
 
     socket.on("disconnect", () => {
-      const onlineUsers = getOnlineUsers();
       removeUser(socket.id);
-      io.emit("USER_ADDED", onlineUsers);
+      io.to(AUTHED_ROOM).emit("USER_ADDED", getOnlineUsers());
     });
   });
 };

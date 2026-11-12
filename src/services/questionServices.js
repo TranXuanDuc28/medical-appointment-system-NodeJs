@@ -1,5 +1,6 @@
 const db = require("../models");
 import fetch from "node-fetch";
+import { assessmentOwner } from "../utils/legacyMisc";
 const PATH = process.env.API_CHATBOT_URL;
 const testsConfig = {
   BDI_II: {
@@ -24,6 +25,13 @@ const testsConfig = {
   },
   // Có thể thêm nhiều test khác...
 };
+// Thứ tự trả về: sortOrder (nếu có) rồi id => khớp thứ tự id của bản cũ.
+const QUESTION_ORDER = [
+  ["sortOrder", "ASC"],
+  ["id", "ASC"],
+  [{ model: db.QuestionOption, as: "options" }, "sortOrder", "ASC"],
+  [{ model: db.QuestionOption, as: "options" }, "id", "ASC"],
+];
 function calculateScore(answers, questions, testKey) {
   const config = testsConfig[testKey] || null;
   if (!config) {
@@ -181,6 +189,7 @@ let submitAssessment = (data) => {
               as: "options",
             },
           ],
+          order: QUESTION_ORDER,
           raw: false,
           nest: true,
         });
@@ -215,15 +224,16 @@ let submitAssessment = (data) => {
         // Lưu kết quả vào database (nếu có bảng HealthAssessment)
         let assessment = null;
         if (db.HealthAssessment) {
+          const owner = await assessmentOwner(userId);
           assessment = await db.HealthAssessment.create({
-            user_id: userId,
+            ...owner,
             total_score: scoreResult.totalScore,
             max_score: scoreResult.maxScore,
             percentage: scoreResult.percentage,
             health_level: scoreResult.healthLevel,
-            answers: JSON.stringify(answers),
+            answers: answers, // cột JSON: truyền thẳng mảng, không stringify (tránh mã hoá 2 lần)
             ai_advice: aiAdvice,
-            test_key: testKey,
+            completed_at: new Date(),
           });
         }
 
@@ -254,7 +264,23 @@ let getAllCategoryQuestions = () => {
             include: [{ model: db.QuestionOption, as: "options" }],
           },
         ],
-        order: [["id", "ASC"]],
+        order: [
+          ["id", "ASC"],
+          [{ model: db.Question, as: "questions" }, "sortOrder", "ASC"],
+          [{ model: db.Question, as: "questions" }, "id", "ASC"],
+          [
+            { model: db.Question, as: "questions" },
+            { model: db.QuestionOption, as: "options" },
+            "sortOrder",
+            "ASC",
+          ],
+          [
+            { model: db.Question, as: "questions" },
+            { model: db.QuestionOption, as: "options" },
+            "id",
+            "ASC",
+          ],
+        ],
         raw: false,
         nest: true,
       });
@@ -282,7 +308,7 @@ let getQuestionsByCategory = (category_question_id) => {
         let data = await db.Question.findAll({
           where: { category_question_id },
           include: [{ model: db.QuestionOption, as: "options" }],
-          order: [["id", "ASC"]],
+          order: QUESTION_ORDER,
           raw: false,
           nest: true,
         });
@@ -334,27 +360,40 @@ let createNewQuestion = (data) => {
           errMessage: "Missing parameter",
         });
       } else {
-        // Tạo câu hỏi mới
-        const newQuestion = await db.Question.create({
-          question_text: data.question_text,
-          category_question_id: data.category_question_id,
-          is_active: data.is_active !== undefined ? data.is_active : true,
-        });
+        const questionId = await db.sequelize.transaction(async (transaction) => {
+          // sortOrder: xếp cuối danh mục
+          const last = await db.Question.max("sortOrder", {
+            where: { category_question_id: data.category_question_id },
+            transaction,
+          });
+          // Tạo câu hỏi mới
+          const newQuestion = await db.Question.create(
+            {
+              question_text: data.question_text,
+              category_question_id: data.category_question_id,
+              sortOrder: (Number(last) || 0) + 1,
+              is_active: data.is_active !== undefined ? data.is_active : true,
+            },
+            { transaction }
+          );
 
-        // Thêm đáp án
-        if (data.options && data.options.length > 0) {
-          const optionsToCreate = data.options.map((opt) => ({
-            question_id: newQuestion.id,
-            option_text: opt.option_text,
-            score: opt.score,
-          }));
-          await db.QuestionOption.bulkCreate(optionsToCreate);
-        }
+          // Thêm đáp án
+          if (data.options && data.options.length > 0) {
+            const optionsToCreate = data.options.map((opt, idx) => ({
+              question_id: newQuestion.id,
+              option_text: opt.option_text,
+              score: opt.score,
+              sortOrder: idx + 1,
+            }));
+            await db.QuestionOption.bulkCreate(optionsToCreate, { transaction });
+          }
+          return newQuestion.id;
+        });
 
         resolve({
           errCode: 0,
           errMessage: "ok",
-          questionId: newQuestion.id,
+          questionId,
         });
       }
     } catch (e) {
@@ -365,7 +404,6 @@ let createNewQuestion = (data) => {
 
 // Sửa câu hỏi
 let editQuestion = (data) => {
-  console.log("check data edit question", data);
   return new Promise(async (resolve, reject) => {
     try {
       if (!data.id || !data.question_text || !data.category_question_id) {
@@ -374,28 +412,34 @@ let editQuestion = (data) => {
           errMessage: "Missing parameter",
         });
       } else {
-        // Cập nhật câu hỏi
-        await db.Question.update(
-          {
-            question_text: data.question_text,
-            category_question_id: data.category_question_id,
-            is_active: data.is_active,
-          },
-          { where: { id: data.id } }
-        );
+        await db.sequelize.transaction(async (transaction) => {
+          // Cập nhật câu hỏi
+          await db.Question.update(
+            {
+              question_text: data.question_text,
+              category_question_id: data.category_question_id,
+              is_active: data.is_active,
+            },
+            { where: { id: data.id }, transaction }
+          );
 
-        // Xoá đáp án cũ
-        await db.QuestionOption.destroy({ where: { question_id: data.id } });
+          // Xoá đáp án cũ
+          await db.QuestionOption.destroy({
+            where: { question_id: data.id },
+            transaction,
+          });
 
-        // Thêm đáp án mới
-        if (data.options && data.options.length > 0) {
-          const optionsToCreate = data.options.map((opt) => ({
-            question_id: data.id,
-            option_text: opt.option_text,
-            score: opt.score,
-          }));
-          await db.QuestionOption.bulkCreate(optionsToCreate);
-        }
+          // Thêm đáp án mới
+          if (data.options && data.options.length > 0) {
+            const optionsToCreate = data.options.map((opt, idx) => ({
+              question_id: data.id,
+              option_text: opt.option_text,
+              score: opt.score,
+              sortOrder: idx + 1,
+            }));
+            await db.QuestionOption.bulkCreate(optionsToCreate, { transaction });
+          }
+        });
 
         resolve({
           errCode: 0,
@@ -421,6 +465,7 @@ let getQuestionById = (id) => {
         const data = await db.Question.findOne({
           where: { id },
           include: [{ model: db.QuestionOption, as: "options" }],
+          order: QUESTION_ORDER,
           raw: false,
           nest: true,
         });
@@ -446,8 +491,10 @@ let deleteQuestion = (id) => {
           errMessage: "Missing parameter",
         });
       } else {
-        await db.QuestionOption.destroy({ where: { question_id: id } });
-        await db.Question.destroy({ where: { id } });
+        await db.sequelize.transaction(async (transaction) => {
+          await db.QuestionOption.destroy({ where: { question_id: id }, transaction });
+          await db.Question.destroy({ where: { id }, transaction });
+        });
         resolve({
           errCode: 0,
           errMessage: "ok",
@@ -458,8 +505,90 @@ let deleteQuestion = (id) => {
     }
   });
 };
+
+// ---- Các hàm controller đã gọi nhưng bản cũ chưa cài (route /api/get_all_questions, history, detail) ----
+
+// Lấy tất cả câu hỏi (kèm options) của mọi danh mục
+let getAllQuestions = () => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const data = await db.Question.findAll({
+        include: [{ model: db.QuestionOption, as: "options" }],
+        order: [["category_question_id", "ASC"], ...QUESTION_ORDER],
+        raw: false,
+        nest: true,
+      });
+      resolve({ errMessage: "ok", errCode: 0, data });
+    } catch (e) {
+      reject(e);
+    }
+  });
+};
+
+// Dạng trả về một lần đánh giá: user_id luôn là chuỗi giống input của frontend (id số hoặc guest_key)
+const assessmentOf = (row) => ({
+  id: row.id,
+  user_id: row.user_id !== null && row.user_id !== undefined ? String(row.user_id) : row.guest_key,
+  total_score: row.total_score,
+  max_score: row.max_score,
+  percentage: Number(row.percentage),
+  health_level: row.health_level,
+  answers: row.answers,
+  ai_advice: row.ai_advice,
+  completed_at: row.completed_at,
+  createdAt: row.createdAt,
+  updatedAt: row.updatedAt,
+});
+
+// Lịch sử đánh giá theo userId (id số của user đăng nhập hoặc khóa khách "user_...")
+let getAssessmentHistoryById = (userId, limit) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      if (!userId) {
+        resolve({ errCode: 1, errMessage: "Missing parameter" });
+      } else {
+        const owner = await assessmentOwner(userId);
+        const where = owner.user_id !== null ? { user_id: owner.user_id } : { guest_key: owner.guest_key };
+        const lim = parseInt(limit);
+        const rows = await db.HealthAssessment.findAll({
+          where,
+          order: [
+            ["createdAt", "DESC"],
+            ["id", "DESC"],
+          ],
+          ...(lim > 0 ? { limit: lim } : {}),
+        });
+        resolve({ errMessage: "ok", errCode: 0, data: rows.map(assessmentOf) });
+      }
+    } catch (e) {
+      reject(e);
+    }
+  });
+};
+
+// Chi tiết một lần đánh giá
+let getAssessmentDetailById = (id) => {
+  return new Promise(async (resolve, reject) => {
+    try {
+      if (!id) {
+        resolve({ errCode: 1, errMessage: "Missing parameter" });
+      } else {
+        const row = await db.HealthAssessment.findOne({ where: { id } });
+        if (!row) {
+          resolve({ errCode: 2, errMessage: "Assessment not found" });
+        } else {
+          resolve({ errMessage: "ok", errCode: 0, data: assessmentOf(row) });
+        }
+      }
+    } catch (e) {
+      reject(e);
+    }
+  });
+};
+
 module.exports = {
   submitAssessment: submitAssessment,
+  getAllQuestions,
   getAllCategoryQuestions,
   getQuestionsByCategory,
   createNewCategoryQuestion,
@@ -467,4 +596,6 @@ module.exports = {
   editQuestion,
   getQuestionById,
   deleteQuestion,
+  getAssessmentHistoryById,
+  getAssessmentDetailById,
 };

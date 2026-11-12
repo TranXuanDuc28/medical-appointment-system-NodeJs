@@ -1,8 +1,6 @@
 import bcrypt from "bcryptjs";
 import db from "../models/index";
-import { where } from "sequelize";
-import { raw } from "body-parser";
-import user from "../models/user";
+import deviceTokenService from "./deviceTokenService";
 const salt = bcrypt.genSaltSync(10);
 let handleUserRegister = (
   email,
@@ -52,7 +50,8 @@ let handleUserLogin = (email, password) => {
             "lastName",
             "password",
             "image",
-            "groupId",
+            "isActive",
+            "tokenVersion",
           ],
           where: { email: email },
           include: [
@@ -66,35 +65,34 @@ let handleUserLogin = (email, password) => {
               as: "positionData",
               attributes: ["valueEn", "valueVi"],
             },
-            {
-              model: db.Group,
-              attributes: ["id", "name", "description"],
-              include: [
-                {
-                  model: db.Role,
-                  attributes: ["id", "url", "description"],
-                  through: { attributes: [] },
-                },
-              ],
-            },
           ],
           raw: false,
           nest: true,
         });
 
         if (users) {
-          let check = bcrypt.compareSync(password, users.password);
-          if (check) {
+          // Tài khoản tạo tự động khi đặt lịch (khách) chưa có mật khẩu -> không đăng nhập được
+          let check = users.password
+            ? bcrypt.compareSync(password, users.password)
+            : false;
+          if (check && users.isActive === false) {
+            userData.errCode = 5;
+            userData.errMessage = "Tài khoản đã bị khoá, vui lòng liên hệ quản trị viên!";
+          } else if (check) {
             userData.errCode = 0;
             userData.errMessage = "Ok!";
-            delete users.password;
-            //Nếu users là object (findOne), chuyển image sang binary string
-            if (users.image) {
-              users.image = Buffer.from(users.image, "base64").toString(
+            // Chuyển sang object thường rồi mới xoá password
+            // (trước đây `delete users.password` trên instance Sequelize không có tác dụng
+            // nên hash mật khẩu bị trả về cho client)
+            const plainUser = users.get({ plain: true });
+            delete plainUser.password;
+            if (plainUser.image) {
+              plainUser.image = Buffer.from(plainUser.image, "base64").toString(
                 "binary"
               );
             }
-            userData.users = users;
+            userData.users = plainUser;
+            db.User.update({ lastLoginAt: new Date() }, { where: { id: plainUser.id } }).catch(() => {});
           } else {
             userData.errCode = 3;
             userData.errMessage = "Sai mật khẩu!";
@@ -128,27 +126,23 @@ let handlePatientChatLogin = (email, password) => {
             "firstName",
             "lastName",
             "password",
+            "isActive",
+            "tokenVersion",
           ],
           where: { email: email },
           include: [
-            {
-              model: db.Group,
-              attributes: ["id", "name", "description"],
-              include: [
-                {
-                  model: db.Role,
-                  attributes: ["id", "url", "description"],
-                  through: { attributes: [] },
-                },
-              ],
-            },
           ],
           raw: false,
           nest: true,
         });
         if (users) {
-          let check = bcrypt.compareSync(password, users.password);
-          if (check) {
+          let check = users.password
+            ? bcrypt.compareSync(password, users.password)
+            : false;
+          if (check && users.isActive === false) {
+            userData.errCode = 5;
+            userData.errMessage = "Tài khoản đã bị khoá, vui lòng liên hệ quản trị viên!";
+          } else if (check) {
             if (users.roleId !== "R3") {
               userData.errCode = 4;
               userData.errMessage =
@@ -183,6 +177,7 @@ let checkUserEmail = (userEmail) => {
     try {
       let users = await db.User.findOne({
         where: { email: userEmail },
+        paranoid: false, // tài khoản đã xoá mềm vẫn chiếm email (UNIQUE ở DB)
       });
       if (users) {
         resolve(true);
@@ -198,10 +193,12 @@ let getAllUsers = (userId) => {
   return new Promise(async (resolve, reject) => {
     try {
       let users = "";
+      // Tên cột đúng là "password" (trước đây ghi "passWord" nên hash mật khẩu
+      // của toàn bộ user bị trả ra API)
       if (userId === "ALL") {
         users = await db.User.findAll({
           attributes: {
-            exclude: ["passWord"],
+            exclude: ["password"],
           },
         });
       }
@@ -209,7 +206,7 @@ let getAllUsers = (userId) => {
         users = await db.User.findOne({
           where: { id: userId },
           attributes: {
-            exclude: ["passWord"],
+            exclude: ["password"],
           },
         });
       }
@@ -244,9 +241,9 @@ let createNewUsers = (data) => {
           password: hashPasswordFromBcrypt,
           address: data.address,
           phoneNumber: data.phoneNumber,
-          gender: data.gender,
-          roleId: data.roleId,
-          positionId: data.positionId,
+          gender: data.gender || null, // chuỗi rỗng sẽ vi phạm FK reference_codes
+          roleId: data.roleId || "R3",
+          positionId: data.positionId || null,
           image: data.avatar,
         });
         resolve({
@@ -298,7 +295,7 @@ let updateUserData = (data) => {
   return new Promise(async (resolve, reject) => {
     try {
       if (!data.id || !data.roleId || !data.gender) {
-        resolve({
+        return resolve({
           errCode: 2,
           errMessage: "Khong co tham so truyen vao!",
         });
@@ -313,9 +310,9 @@ let updateUserData = (data) => {
           (users.lastName = data.lastName),
           (users.address = data.address),
           (users.phoneNumber = data.phoneNumber),
-          (users.gender = data.gender),
+          (users.gender = data.gender || null),
           (users.roleId = data.roleId);
-        users.positionId = data.positionId;
+        users.positionId = data.positionId || null;
         if (data.avatar) {
           users.image = data.avatar;
         }
@@ -342,6 +339,8 @@ let getAllCodeServices = (typeInput) => {
       let res = {};
       let allcode = await db.AllCode.findAll({
         where: { type: typeInput },
+        attributes: ["id", "keyMap", "type", "valueEn", "valueVi", "createdAt", "updatedAt"],
+        order: [["sortOrder", "ASC"], ["id", "ASC"]],
       });
       res.errCode = 0;
       res.data = allcode;
@@ -356,18 +355,6 @@ let getUserByEmail = (email) => {
     try {
       let user = await db.User.findOne({
         where: { email: email },
-        include: [
-          {
-            model: db.Group,
-            include: [
-              {
-                model: db.Role,
-                attributes: ["url", "description"],
-                through: { attributes: [] },
-              },
-            ],
-          },
-        ],
         raw: false,
         nest: true,
       });
@@ -400,11 +387,11 @@ let saveFCMToken = (data) => {
       } else {
         let user = await db.User.findOne({
           where: { id: data.userId },
-          raw: false,
+          attributes: ["id"],
+          raw: true,
         });
         if (user) {
-          user.fcmToken = data.fcmToken;
-          await user.save();
+          await deviceTokenService.saveToken(user.id, data.fcmToken, data.platform || "web");
           resolve({
             errCode: 0,
             errMessage: "Save FCM Token succeed!",
