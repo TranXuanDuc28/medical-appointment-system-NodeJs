@@ -15,10 +15,11 @@ import questionController from "../controllers/questionController";
 import { cacheMiddleware, invalidateCache } from "../utils/redis";
 import rbacController from "../controllers/rbacController";
 import queueController from "../controllers/queueController";
+import aiController from "../controllers/aiController";
 import { selfOrPermission, doctorSelf } from "../middleware/ownership";
 import { medicalRecordPolicy, appointmentReadPolicy } from "../middleware/policies";
 import { P } from "../config/permissions";
-import { authLimiter, bookingLimiter } from "../middleware/rateLimit";
+import { authLimiter, bookingLimiter, aiLimiter } from "../middleware/rateLimit";
 const multer = require("multer");
 const path = require("path");
 const slugify = require("slugify");
@@ -76,6 +77,10 @@ let initWebRoutes = (app) => {
   }
   // API routes (quyền truy cập được áp dụng tập trung bởi middleware accessControl
   // dựa trên config/accessRules.js; ở đây chỉ thêm kiểm tra sở hữu dữ liệu)
+  // AI: gợi ý chuyên khoa (công khai, có giới hạn tần suất) + giám sát/đối sánh (ai-metrics:read)
+  router.post("/api/ai/triage", aiLimiter, aiController.triage);
+  router.get("/api/ai/status", aiController.status);
+  router.get("/api/ai/metrics", aiController.metrics);
   // Hàng đợi khám bệnh (quyền kiểm bởi accessControl theo accessRules + kiểm tra chủ vé/bác sĩ trong queueService)
   router.post("/api/queue/check-in", queueController.checkIn);
   router.post("/api/queue/walk-in", queueController.walkIn);

@@ -64,6 +64,11 @@ module.exports = {
     ["POST", "/api/update-medical-appointment-status", [P.PRESCRIPTION_CREATE]],
     ["GET", "/api/get-medicines", [P.MEDICINE_READ]],
 
+    // ---- AI ----
+    ["POST", "/api/ai/triage", PUBLIC],
+    ["GET", "/api/ai/status", [P.AI_METRICS_READ]],
+    ["GET", "/api/ai/metrics", [P.AI_METRICS_READ]],
+
     // ---- Hàng đợi (quyền chi tiết + kiểm tra chủ vé/bác sĩ nằm trong queueService) ----
     ["POST", "/api/queue/check-in", AUTH], // nhân viên có queue:checkin hoặc chính bệnh nhân đặt lịch
     ["POST", "/api/queue/walk-in", [P.QUEUE_WALKIN_CREATE]],
