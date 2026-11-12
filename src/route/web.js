@@ -12,8 +12,12 @@ import packageController from "../controllers/packageController";
 import facilityController from "../controllers/facilityController";
 import handbookController from "../controllers/handbookController";
 import questionController from "../controllers/questionController";
-import { checkAuthenticationUser, checkUserPermission } from "../middleware/JWTaction";
 import { cacheMiddleware, invalidateCache } from "../utils/redis";
+import rbacController from "../controllers/rbacController";
+import { selfOrPermission, doctorSelf } from "../middleware/ownership";
+import { medicalRecordPolicy, appointmentReadPolicy } from "../middleware/policies";
+import { P } from "../config/permissions";
+import { authLimiter, bookingLimiter } from "../middleware/rateLimit";
 const multer = require("multer");
 const path = require("path");
 const slugify = require("slugify");
@@ -34,36 +38,74 @@ const storage = multer.diskStorage({
     cb(null, uniqueSuffix + "-" + safeName);
   },
 });
-const upload = multer({ storage: storage });
+const ALLOWED_UPLOAD_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "video/mp4",
+];
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 20 * 1024 * 1024, files: 1 }, // tối đa 20MB / 1 file
+  fileFilter: (req, file, cb) => {
+    if (ALLOWED_UPLOAD_TYPES.includes(file.mimetype)) return cb(null, true);
+    cb(new Error("Định dạng file không được hỗ trợ"));
+  },
+});
 
 // khoi tao router
 let router = express.Router();
 
 // tao ham initWebRoutes
 let initWebRoutes = (app) => {
-  // crud routes
+  // CRUD demo (EJS) - tạo/xoá user không cần đăng nhập => chỉ bật khi chạy development
   router.get("/", homeController.getHomePage);
   router.get("/about", homeController.getAboutPage);
-  router.get("/crud", homeController.getCRUD);
-  router.post("/post_crud", homeController.postCRUD);
-  router.get("/get_crud", homeController.displayGetCRUD);
-  router.get("/edit_crud", homeController.getEditCRUD);
-  router.post("/put_crud", homeController.putCRUD);
-  router.get("/delete_crud", homeController.getdeleteCRUD);
-  // API routes
-  router.post("/api/register", userController.handleRegister);
-  router.post("/api/login", userController.handleLogin);
+  if (process.env.NODE_ENV === "development") {
+    router.get("/crud", homeController.getCRUD);
+    router.post("/post_crud", homeController.postCRUD);
+    router.get("/get_crud", homeController.displayGetCRUD);
+    router.get("/edit_crud", homeController.getEditCRUD);
+    router.post("/put_crud", homeController.putCRUD);
+    router.get("/delete_crud", homeController.getdeleteCRUD);
+  }
+  // API routes (quyền truy cập được áp dụng tập trung bởi middleware accessControl
+  // dựa trên config/accessRules.js; ở đây chỉ thêm kiểm tra sở hữu dữ liệu)
+  // RBAC & audit (quyền kiểm bởi accessControl theo accessRules)
+  router.get("/api/rbac/me", rbacController.me);
+  router.get("/api/rbac/roles", rbacController.listRoles);
+  router.post("/api/rbac/roles", rbacController.createRole);
+  router.get("/api/rbac/permissions", rbacController.listPermissions);
+  router.put("/api/rbac/roles/:code/permissions", rbacController.setRolePermissions);
+  router.delete("/api/rbac/roles/:code", rbacController.deleteRole);
+  router.put("/api/rbac/users/:id/role", rbacController.assignRole);
+  router.put("/api/rbac/users/:id/active", rbacController.setActive);
+  router.get("/api/rbac/audit-logs", rbacController.auditLogs);
+  router.post("/api/register", authLimiter, userController.handleRegister);
+  router.post("/api/login", authLimiter, userController.handleLogin);
   router.post("/api/logout", userController.handleLogout);
-  router.post("/api/refresh-token", userController.handleRefreshToken);
-  router.post("/api/save-fcm-token", userController.saveFCMToken);
-  router.get("/api/get_all_users", userController.handleGetAllUsers);
-  router.post("/api/create_new_users", userController.handleCreateNewUsers);
+  router.post("/api/refresh-token", authLimiter, userController.handleRefreshToken);
+  router.post(
+    "/api/save-fcm-token",
+    selfOrPermission((req) => req.body && req.body.userId, P.USER_UPDATE),
+    userController.saveFCMToken
+  );
+  router.get(
+    "/api/get_all_users",
+    selfOrPermission((req) => req.query.id, P.USER_READ_ANY),
+    userController.handleGetAllUsers
+  );
+  router.post("/api/create_new_users", rbacController.guardRoleChange, userController.handleCreateNewUsers);
   router.delete("/api/delete_users", userController.handleDeleteUsers);
-  router.put("/api/edit_users", userController.handleEditUsers);
+  router.put("/api/edit_users", rbacController.guardRoleChange, userController.handleEditUsers);
   router.get("/api/allcode", userController.getAllCode);
   router.get("/api/top-doctor-home", cacheMiddleware(300), doctorController.getTopDoctorHome);
   router.get("/api/get_all_doctor", cacheMiddleware(300), doctorController.getAllDoctor);
-  router.post("/api/save_detail_doctor", (req, res, next) => {
+  router.post("/api/save_detail_doctor", doctorSelf((req) => req.body && req.body.doctorId), (req, res, next) => {
     invalidateCache(["/api/top-doctor-home", "/api/get_all_doctor", "/api/get_detail_doctor_by_id", "/api/get-extra-doctor-by-id", "/api/get-profile-doctor-by-id"]);
     next();
   }, doctorController.postInforDoctor);
@@ -74,6 +116,7 @@ let initWebRoutes = (app) => {
   );
   router.post(
     "/api/bulk_create_schedule",
+    doctorSelf((req) => req.body && req.body.doctorId),
     (req, res, next) => {
       invalidateCache(["/api/get_schedule_doctor_by_date"]);
       next();
@@ -97,12 +140,15 @@ let initWebRoutes = (app) => {
   );
   router.post(
     "/api/patient-book-appointment",
+    bookingLimiter,
     patientController.postBookAppointment
   );
   router.post(
     "/api/verify-book-appointment",
+    bookingLimiter,
     patientController.postVerifyBookAppointment
   );
+  router.post("/api/cancel-appointment", patientController.postCancelAppointment);
   // HandBook routes
   router.post("/api/create-new-handbook", (req, res, next) => {
     invalidateCache(["/api/get-handbook", "/api/get-detail-handbook-by-id", "/api/get-related-handbooks"]);
@@ -146,9 +192,14 @@ let initWebRoutes = (app) => {
     "/api/get-list-patient-for-doctor",
     doctorController.getListPatientForDoctor
   );
-  router.post("/api/send-remedy", doctorController.sendRemedy);
+  router.post(
+    "/api/send-remedy",
+    doctorSelf((req) => req.body && req.body.doctorId),
+    doctorController.sendRemedy
+  );
   router.post(
     "/api/update-medical-appointment-status",
+    doctorSelf((req) => req.body && req.body.doctorId),
     doctorController.postMedicalAppointmentStatus
   );
   // Add the Casso payment transaction API endpoint
@@ -165,8 +216,15 @@ let initWebRoutes = (app) => {
   router.get("/api/get-msg/:receiverId", chatController.getMsg);
   router.post("/api/del-msg/:id", chatController.delMsg);
 
-  // API upload file
-  router.post("/api/upload-file", upload.single("file"), (req, res) => {
+  // API upload file (đã đăng nhập; lỗi multer -> 400 thay vì 500 có stack trace)
+  const uploadSingle = (req, res, next) =>
+    upload.single("file")(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({ errCode: 1, errMessage: err.message });
+      }
+      next();
+    });
+  router.post("/api/upload-file", uploadSingle, (req, res) => {
     if (!req.file) {
       return res
         .status(400)
@@ -187,7 +245,7 @@ let initWebRoutes = (app) => {
     });
   });
 
-  router.post("/api/login-patient-chat", userController.handlePatientChatLogin);
+  router.post("/api/login-patient-chat", authLimiter, userController.handlePatientChatLogin);
 
   // Package routes
   router.get("/api/packages/all", cacheMiddleware(300), packageController.getAllPackages);
@@ -246,10 +304,12 @@ let initWebRoutes = (app) => {
   // Appointment history routes
   router.get(
     "/api/get-patient-appointments",
+    appointmentReadPolicy((req) => req.query.patientId),
     patientController.getPatientAppointments
   );
   router.get(
     "/api/get-patient-history",
+    medicalRecordPolicy((req) => req.query.patientId),
     patientController.getPatientHistory
   );
 
@@ -262,6 +322,7 @@ let initWebRoutes = (app) => {
   );
   router.get(
     "/api/assessment-history-by-userid/:userId",
+    medicalRecordPolicy((req) => req.params.userId),
     questionController.getAssessmentHistoryByUserId
   );
   router.post("/api/create-new-question", questionController.createNewQuestion);

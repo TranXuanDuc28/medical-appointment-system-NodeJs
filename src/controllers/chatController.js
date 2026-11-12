@@ -15,7 +15,7 @@ let getMsg = async (req, res) => {
   try {
     let infor = await chatServices.getMsg(
       req.params.receiverId,
-      req.query.userId,
+      req.user.id, // lấy từ token, không tin query.userId (tránh đọc tin nhắn của người khác)
       parseInt(req.query.offset) || 0
     );
     return res.status(200).json(infor);
@@ -28,7 +28,10 @@ let getMsg = async (req, res) => {
 };
 let delMsg = async (req, res) => {
   try {
-    let infor = await chatServices.delMsg(req.params.id);
+    let infor = await chatServices.delMsg({
+      msgId: req.params.id,
+      userId: req.user.id,
+    });
     return res.status(200).json(infor);
   } catch (e) {
     return res.status(200).json({
