@@ -20,6 +20,9 @@ module.exports = {
       totalPrire: {
         type: Sequelize.STRING,
       },
+      paymentMethod: {
+        type: Sequelize.STRING,
+      },
       description: {
         type: Sequelize.STRING,
       },

@@ -826,14 +826,17 @@ let sendRemedyService = (data) => {
             },
           });
           if (!created) {
-            cashierRecord.totalPrire = String(totalFee);
-            cashierRecord.description = JSON.stringify({
-              examinationFee: examinationFee,
-              medicineFee: medicineFee,
-              totalFee: totalFee,
-              medicinesCount: (data.prescription || []).length,
+            await db.Cashier.update({
+              totalPrire: String(totalFee),
+              description: JSON.stringify({
+                examinationFee: examinationFee,
+                medicineFee: medicineFee,
+                totalFee: totalFee,
+                medicinesCount: (data.prescription || []).length,
+              }),
+            }, {
+              where: { bookingId: String(appointment.id) },
             });
-            await cashierRecord.save();
           }
         } catch (cashierErr) {
           console.error("Error creating/updating Cashier record in sendRemedyService:", cashierErr);
@@ -945,45 +948,44 @@ let sendPayment = (data, io) => {
           appointment.statusId = "S5";
           await appointment.save();
 
-          let [cashierRecord, created] = await db.Cashier.findOrCreate({
+          const existCashier = await db.Cashier.findOne({
             where: { bookingId: String(appointment.id) },
-            defaults: {
-              cashier: data.cashier || "Thu ngân",
-              date: String(data.date || Date.now()),
-              totalPrire: String(data.totalPrice || data.totalPrire || 0),
-              paymentMethod: data.paymentMethod || "CASH",
-              description: JSON.stringify({
-                examinationFee: Number(data.examinationPrice || data.totalPrice || 0),
-                medicineFee: Number(data.medicinePrice || 0),
-                totalFee: Number(data.totalPrice || 0),
-                note: data.description || "Thanh toán viện phí",
-              }),
-              bookingId: String(appointment.id),
-            },
+            raw: true,
           });
-          if (!created) {
-            let breakdown = {};
-            if (cashierRecord.description) {
-              try {
-                breakdown = JSON.parse(cashierRecord.description);
-              } catch (e) {}
-            }
-            const examPrice = data.examinationPrice !== undefined ? Number(data.examinationPrice) : (breakdown.examinationFee !== undefined ? Number(breakdown.examinationFee) : Number(data.totalPrice || 0));
-            const medPrice = data.medicinePrice !== undefined ? Number(data.medicinePrice) : (breakdown.medicineFee !== undefined ? Number(breakdown.medicineFee) : 0);
-            const finalTotal = Number(data.totalPrice || (examPrice + medPrice));
 
-            cashierRecord.cashier = data.cashier || "Thu ngân";
-            cashierRecord.date = String(data.date || Date.now());
-            cashierRecord.totalPrire = String(finalTotal);
-            cashierRecord.paymentMethod = data.paymentMethod || "CASH";
-            cashierRecord.description = JSON.stringify({
+          let breakdown = {};
+          if (existCashier && existCashier.description) {
+            try {
+              breakdown = JSON.parse(existCashier.description);
+            } catch (e) {}
+          }
+          const examPrice = data.examinationPrice !== undefined ? Number(data.examinationPrice) : (breakdown.examinationFee !== undefined ? Number(breakdown.examinationFee) : Number(data.totalPrice || 0));
+          const medPrice = data.medicinePrice !== undefined ? Number(data.medicinePrice) : (breakdown.medicineFee !== undefined ? Number(breakdown.medicineFee) : 0);
+          const finalTotal = Number(data.totalPrice || (examPrice + medPrice));
+
+          const cashierData = {
+            cashier: data.cashier || "Thu ngân",
+            date: String(data.date || Date.now()),
+            totalPrire: String(finalTotal),
+            paymentMethod: data.paymentMethod || "CASH",
+            description: JSON.stringify({
               examinationFee: examPrice,
               medicineFee: medPrice,
               totalFee: finalTotal,
               medicinesCount: breakdown.medicinesCount || 0,
               note: data.description || breakdown.note || "Thanh toán viện phí",
+            }),
+          };
+
+          if (existCashier) {
+            await db.Cashier.update(cashierData, {
+              where: { bookingId: String(appointment.id) },
             });
-            await cashierRecord.save();
+          } else {
+            await db.Cashier.create({
+              ...cashierData,
+              bookingId: String(appointment.id),
+            });
           }
 
           // Emit PAYMENT_CONFIRMED to cashier and patient
@@ -1083,7 +1085,7 @@ let updateBookingPaymentStatus = async (bookingId, amount, transactionDateTime, 
       {
         model: db.User,
         as: "patientData",
-        attributes: ["id", "email", "firstName", "fcmToken"],
+        attributes: ["id", "email", "firstName", "lastName", "fcmToken"],
       },
     ],
     raw: false,
@@ -1092,40 +1094,55 @@ let updateBookingPaymentStatus = async (bookingId, amount, transactionDateTime, 
     booking.statusId = "S5";
     await booking.save();
 
-    // Lưu thông tin thanh toán vào bảng Cashier nếu chưa có
+    // Lưu hoặc cập nhật thông tin thanh toán vào bảng Cashier
     try {
-      const [cashierRecord, created] = await db.Cashier.findOrCreate({
+      const existCashier = await db.Cashier.findOne({
         where: { bookingId: String(booking.id) },
-        defaults: {
-          cashier: "Cổng PayOS / Casso",
-          date: String(transactionDateTime || Date.now()),
-          totalPrire: String(amount),
-          paymentMethod: "TRANSFER_QR",
-          description: JSON.stringify({
-            examinationFee: Number(amount),
-            medicineFee: 0,
-            totalFee: Number(amount),
-            note: `Thanh toán trực tuyến mã BOOKING${booking.id}`,
-          }),
-          bookingId: String(booking.id),
-        },
+        raw: true,
       });
-      if (!created) {
-        cashierRecord.cashier = "Cổng PayOS / Casso";
-        cashierRecord.date = String(transactionDateTime || Date.now());
-        cashierRecord.totalPrire = String(amount);
-        cashierRecord.paymentMethod = "TRANSFER_QR";
-        await cashierRecord.save();
+
+      let breakdown = {};
+      if (existCashier && existCashier.description) {
+        try {
+          breakdown = JSON.parse(existCashier.description);
+        } catch (e) {}
+      }
+
+      const updateData = {
+        cashier: "Cổng PayOS / Casso",
+        date: String(transactionDateTime || Date.now()),
+        totalPrire: String(amount),
+        paymentMethod: "TRANSFER_QR",
+        description: JSON.stringify({
+          examinationFee: breakdown.examinationFee || Number(amount),
+          medicineFee: breakdown.medicineFee || 0,
+          totalFee: Number(amount),
+          medicinesCount: breakdown.medicinesCount || 0,
+          note: `Thanh toán trực tuyến mã BOOKING${booking.id}`,
+        }),
+      };
+
+      if (existCashier) {
+        await db.Cashier.update(updateData, {
+          where: { bookingId: String(booking.id) },
+        });
+        console.log("✅ Đã cập nhật Cashier sang TRANSFER_QR cho booking:", booking.id);
+      } else {
+        await db.Cashier.create({
+          ...updateData,
+          bookingId: String(booking.id),
+        });
+        console.log("✅ Đã tạo mới Cashier TRANSFER_QR cho booking:", booking.id);
       }
     } catch (cashierErr) {
-      console.warn("Không thể tạo Cashier record cho booking:", cashierErr.message);
+      console.error("Lỗi cập nhật Cashier record trong updateBookingPaymentStatus:", cashierErr);
     }
     // Gửi email xác nhận đã thanh toán
     try {
       const patient = booking.patientData;
       const dataSend = {
         reciverEmail: patient.email,
-        patientName: patient.firstName,
+        patientName: patient ? `${patient.firstName || ""} ${patient.lastName || ""}`.trim() : "",
         amount: amount,
         time: transactionDateTime,
         language: "vi",
@@ -1138,7 +1155,7 @@ let updateBookingPaymentStatus = async (bookingId, amount, transactionDateTime, 
     const onlineUsers = getOnlineUsers();
     const notificationData = {
       bookingId,
-      patientName: booking.patientData ? booking.patientData.firstName : "",
+      patientName: booking.patientData ? `${booking.patientData.firstName || ""} ${booking.patientData.lastName || ""}`.trim() : "",
       amount: amount,
       transactionDateTime: transactionDateTime,
       doctorId: booking.doctorId,
@@ -1326,27 +1343,28 @@ let createPayOSPaymentLink = (data) => {
 let handlePayOSWebhook = (webhookBody, io) => {
   return new Promise(async (resolve, reject) => {
     try {
+      console.log("👉 [PayOS Webhook] Nhận dữ liệu webhook:", JSON.stringify(webhookBody, null, 2));
+
       if (!webhookBody) {
-        resolve({
+        return resolve({
           errCode: 1,
           errMessage: "Missing webhook data",
         });
-        return;
       }
 
       if (!payOS) {
-        resolve({
+        return resolve({
           errCode: -1,
           errMessage: "PayOS is not initialized",
         });
-        return;
       }
 
       let verifiedData = null;
       try {
         verifiedData = await payOS.webhooks.verify(webhookBody);
+        console.log("✅ [PayOS Webhook] Signature verified thành công:", verifiedData);
       } catch (verifyError) {
-        console.warn("⚠️ PayOS webhook signature verification failed:", verifyError.message);
+        console.warn("⚠️ [PayOS Webhook] Signature verification failed:", verifyError.message);
         verifiedData = webhookBody.data || webhookBody;
       }
 
@@ -1355,8 +1373,10 @@ let handlePayOSWebhook = (webhookBody, io) => {
         verifiedData &&
         (verifiedData.description === "test" ||
           verifiedData.orderCode === 123 ||
-          verifiedData.isTest)
+          verifiedData.isTest ||
+          webhookBody.description === "test")
       ) {
+        console.log("ℹ️ [PayOS Webhook] Xử lý test webhook");
         return resolve({
           error: 0,
           errCode: 0,
@@ -1364,40 +1384,76 @@ let handlePayOSWebhook = (webhookBody, io) => {
         });
       }
 
-      if (verifiedData.desc === "success" || verifiedData.success === true || verifiedData.code === "00") {
-        const description = verifiedData.description || "";
-        const match = description.match(/BOOKING([a-zA-Z0-9]+)/i);
-        if (!match) {
-          resolve({
+      const isSuccess =
+        webhookBody.success === true ||
+        webhookBody.code === "00" ||
+        webhookBody.code === 0 ||
+        (verifiedData && (
+          verifiedData.code === "00" ||
+          verifiedData.code === 0 ||
+          String(verifiedData.desc).toLowerCase() === "success" ||
+          String(verifiedData.desc).toLowerCase().includes("thành công")
+        ));
+
+      if (isSuccess) {
+        const rawDescription =
+          (verifiedData && verifiedData.description) ||
+          webhookBody.description ||
+          (webhookBody.data && webhookBody.data.description) ||
+          "";
+
+        console.log("👉 [PayOS Webhook] Nội dung giao dịch (description):", rawDescription);
+
+        // Hỗ trợ BOOKING123, BOOKING 123, BOOKING: 123, BOOKING#123, BOOKING-123
+        let match = rawDescription.match(/BOOKING[:\s#\-_]*([a-zA-Z0-9]+)/i);
+        let bookingId = match ? match[1] : null;
+
+        // Nếu không có chữ BOOKING, thử tìm mã hash 8 ký tự hex (chuỗi id của Booking)
+        if (!bookingId) {
+          const hexMatch = rawDescription.match(/\b([0-9a-f]{8})\b/i);
+          if (hexMatch) {
+            bookingId = hexMatch[1];
+          }
+        }
+
+        if (!bookingId) {
+          console.warn("⚠️ [PayOS Webhook] Không tìm thấy bookingId trong:", rawDescription);
+          return resolve({
             errCode: 2,
             errMessage: "No bookingId found in description",
           });
-          return;
         }
 
-        const bookingId = match[1];
+        console.log("👉 [PayOS Webhook] Nhận diện bookingId:", bookingId);
+
+        const amount = verifiedData.amount || webhookBody.amount || (webhookBody.data && webhookBody.data.amount) || 0;
+        const transactionDateTime = verifiedData.transactionDateTime || new Date().toISOString();
+
         const success = await updateBookingPaymentStatus(
           bookingId,
-          verifiedData.amount,
-          verifiedData.transactionDateTime || new Date().toISOString(),
+          amount,
+          transactionDateTime,
           io
         );
 
         if (success) {
-          resolve({
+          console.log("✅ [PayOS Webhook] Cập nhật thanh toán TRANSFER_QR thành công cho booking:", bookingId);
+          return resolve({
             error: 0,
             errCode: 0,
             errMessage: "PayOS payment verified and booking updated successfully",
             message: "Success",
           });
         } else {
-          resolve({
+          console.warn("⚠️ [PayOS Webhook] Không tìm thấy record booking trong DB với id:", bookingId);
+          return resolve({
             errCode: 3,
             errMessage: "Booking not found",
           });
         }
       } else {
-        resolve({
+        console.warn("⚠️ [PayOS Webhook] Giao dịch không thành công:", verifiedData);
+        return resolve({
           errCode: 4,
           errMessage: "Transaction was not successful",
         });

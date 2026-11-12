@@ -18,7 +18,7 @@ let sendSimpleEmailDirect = async (dataSend) => {
 
   try {
     let info = await transporter.sendMail({
-      from: '"Trần Xuân Đức" <ductranxuan28@gmail.com>', // sender address
+      from: '"Ngô Thị Mỹ Lành" <ngomylanh1804@gmail.com>', // sender address
       to: dataSend.reciverEmail, // list of receivers
       subject: "Thông tin đặt lịch khám bệnh", // Subject line
       html: getBodyHTMLEmail(dataSend),
@@ -160,7 +160,7 @@ let sendAttachmentDirect = async (dataSend) => {
       },
     });
     let info = await transporter.sendMail({
-      from: '"Trần Xuân Đức" <ductranxuan28@gmail.com>', // sender address
+      from: '"Ngô Thị Mỹ Lành" <ngomylanh1804@gmail.com>', // sender address
       to: dataSend.patientInfo.email, // list of receivers
       subject: "Kết quả đặt lịch khám bệnh và Hóa đơn", // Subject line
       html: getBodyHTMLEmailRemedy(dataSend),
@@ -205,7 +205,7 @@ let sendEmailPaymentSuccessDirect = async (dataSend) => {
   });
   try {
     let info = await transporter.sendMail({
-      from: '"Trần Xuân Đức" <ductranxuan28@gmail.com>',
+      from: '"Ngô Thị Mỹ Lành" <ngomylanh1804@gmail.com>',
       to: dataSend.reciverEmail,
       subject: "Thông báo: Giao dịch thanh toán thành công!",
       html: getBodyHTMLEmailPayment(dataSend),
