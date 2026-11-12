@@ -151,7 +151,7 @@ export const invalidateCache = async (prefixes = []) => {
     // Tự động phát tín hiệu webhook sang Chatbot Service để làm mới dữ liệu
     try {
       const fetch = require("node-fetch");
-      fetch("http://localhost:5002/api/webhook/sync_data", { method: "POST", timeout: 2000 }).catch(() => {});
+      fetch(process.env.CHATBOT_SYNC_URL || "http://localhost:5002/api/webhook/sync_data", { method: "POST", timeout: 2000 }).catch(() => {});
     } catch (_) {}
   } catch (err) {
     console.error("Error invalidating cache:", err);

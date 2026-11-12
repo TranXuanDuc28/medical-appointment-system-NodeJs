@@ -1,257 +1,147 @@
-import { where } from "sequelize";
 import db from "../models/index";
 require("dotenv").config();
 import emailService from "./emailServices";
-import { v4 as uuidv4 } from "uuid";
+import bookingService from "./bookingService";
+import { dateToMs } from "../utils/dateKey";
+import { historyOf } from "../utils/legacyShapes";
 
 let buildUrlEmail = (doctorId, token) => {
   let result = `${process.env.URL_REACT}/verify-booking?token=${token}&doctorId=${doctorId}`;
   return result;
 };
+/**
+ * Đặt lịch: giữ chỗ trong transaction (bookingService) -> commit -> mới gửi email xác nhận.
+ * Nếu gửi email lỗi thì huỷ giữ chỗ để không kẹt slot.
+ */
 let postBookAppointmentServices = async (data) => {
-  return new Promise(async (resolve, reject) => {
-    try {
-      if (
-        !data.email ||
-        !data.doctorId ||
-        !data.timeType ||
-        !data.date ||
-        !data.fullName ||
-        !data.selectedGender ||
-        !data.address
-      ) {
-        resolve({
-          errCode: 1,
-          errMessage: "Không có tham số truyền vào!",
-        });
-      } else {
-        let token = uuidv4();
-        const prefix = token.split("-")[0];
+  const result = await bookingService.createBooking(data);
+  if (result.errCode !== 0) return result;
 
-        const nameParts = data.fullName.trim().split(" ");
-        const firstName = nameParts.slice(0, -1).join(" "); // bỏ chữ cuối
-        const lastName = nameParts[nameParts.length - 1]; // lấy chữ cuối
-        await emailService.sendSimpleEmail({
-          reciverEmail: data.email,
-          patientName: data.fullName,
-          time: data.timeString,
-          doctorName: data.doctorName,
-          language: data.language,
-          redirectLink: buildUrlEmail(data.doctorId, token),
-        });
+  const { booking } = result;
+  try {
+    await emailService.sendSimpleEmail({
+      reciverEmail: data.email,
+      patientName: data.fullName,
+      time: data.timeString,
+      doctorName: data.doctorName,
+      language: data.language,
+      redirectLink: buildUrlEmail(booking.doctorId, booking.token),
+    });
+  } catch (emailError) {
+    console.error("[Booking] Gửi email xác nhận lỗi, nhả slot:", emailError.message);
+    await bookingService.cancelBookingById(booking.id, { force: true });
+    return {
+      errCode: 8,
+      errMessage: "Không gửi được email xác nhận, vui lòng thử lại sau!",
+    };
+  }
 
-        let [user, created] = await db.User.findOrCreate({
-          where: { email: data.email },
-          defaults: {
-            email: data.email,
-            roleId: "R3",
-            firstName: firstName,
-            lastName: lastName,
-            phoneNumber: data.phoneNumber,
-            address: data.address,
-            gender: data.selectedGender,
-          },
-        });
-
-        if (!created) {
-          // Nếu user đã tồn tại, cập nhật lại thông tin
-          await db.User.update(
-            {
-              roleId: "R3",
-              firstName: firstName,
-              lastName: lastName,
-              address: data.address,
-              gender: data.selectedGender,
-              phoneNumber: data.phoneNumber,
-            },
-            {
-              where: { email: data.email },
-            }
-          );
-        }
-
-        // Đặt lịch nếu chưa có lịch cùng bác sĩ, cùng ngày và khung giờ
-        await db.Booking.findOrCreate({
-          where: {
-            patientId: user.id,
-            doctorId: data.doctorId,
-            date: data.date,
-            timeType: data.timeType,
-          },
-          defaults: {
-            id: prefix,
-            statusId: "S1",
-            doctorId: data.doctorId,
-            patientId: user.id,
-            date: data.date,
-            timeType: data.timeType,
-            token: token,
-          },
-        });
-
-        resolve({
-          errCode: 0,
-          errMessage: "Save infor patient succeed!",
-        });
-      }
-    } catch (error) {
-      reject(error);
-    }
-  });
+  // KHÔNG trả token (token là bí mật xác thực email)
+  return {
+    errCode: 0,
+    errMessage: "Save infor patient succeed!",
+    bookingId: booking.id,
+    patientId: booking.patientId,
+    doctorId: booking.doctorId,
+    slotKey: result.slotKey,
+    slotStatus: result.slotStatus,
+    holdMinutes: result.holdMinutes,
+  };
 };
 
-let postVerifyBookAppointment = (data) => {
-  return new Promise(async (resolve, reject) => {
-    try {
-      if (!data.token || !data.doctorId) {
-        resolve({
-          errCode: 1,
-          errMessage: "Missing parameter",
-        });
-      } else {
-        let appointment = await db.Booking.findOne({
-          where: {
-            doctorId: data.doctorId,
-            token: data.token,
-            statusId: "S1",
-          },
-          raw: false,
-        });
-        if (appointment) {
-          appointment.statusId = "S2";
-          await appointment.save();
+let postVerifyBookAppointment = (data) => bookingService.verifyBooking(data || {});
 
-          resolve({
-            errCode: 0,
-            errMessage: "Update the appointment succeed",
-          });
-        } else {
-          resolve({
-            errCode: 2,
-            errMessage: "Appointment has been activated or does not exist",
-          });
-        }
-      }
-    } catch (e) {
-      reject(e);
-    }
-  });
+let cancelAppointment = async (bookingId, actor) => {
+  if (!bookingId) return { errCode: 1, errMessage: "Missing parameter: bookingId" };
+  return bookingService.cancelBookingById(bookingId, { actor });
 };
+/**
+ * Lịch hẹn của một bệnh nhân. Shape giữ như API cũ:
+ * { id, doctorName, specialty, time (chuỗi ms của ngày khám), timeType (nhãn), status (nhãn) }
+ */
 let getPatientAppointments = async (patientId) => {
-  return new Promise(async (resolve, reject) => {
-    try {
-      if (!patientId) {
-        resolve({
-          errCode: 1,
-          errMessage: "Missing required parameter: patientId",
-        });
-      } else {
-        let appointments = await db.Booking.findAll({
-          where: { patientId: patientId },
+  try {
+    if (!patientId) {
+      return { errCode: 1, errMessage: "Missing required parameter: patientId" };
+    }
+    const appointments = await db.Booking.findAll({
+      where: { patientId },
+      include: [
+        { model: db.AllCode, as: "timeTypeDataPatient", attributes: ["valueEn", "valueVi"] },
+        { model: db.AllCode, as: "statusDataPatient", attributes: ["valueEn", "valueVi"] },
+        {
+          model: db.User,
+          as: "doctorData",
+          attributes: ["firstName", "lastName"],
           include: [
             {
-              model: db.User,
-              as: "patientData",
-              attributes: ["firstName", "lastName"],
-            },
-            {
-              model: db.AllCode,
-              as: "timeTypeDataPatient",
-              attributes: ["valueEn", "valueVi"],
-            },
-            {
-              model: db.AllCode,
-              as: "statusDataPatient",
-              attributes: ["valueEn", "valueVi"],
-            },
-            {
-              model: db.Doctor_Infor,
-              as: "doctorInforData",
+              model: db.DoctorProfile,
+              as: "doctorProfile",
+              attributes: ["specialtyId"],
               include: [
                 {
-                  model: db.User,
-                  as: "doctorData",
-                  attributes: ["firstName", "lastName"],
-                },
-                {
-                  model: db.Specialty_Translation,
-                  as: "specialty",
-                  attributes: ["name"],
+                  model: db.Specialty,
+                  as: "doctorSpecialty",
+                  attributes: ["id"],
+                  include: [{ model: db.Specialty_Translation, as: "specialtyData", attributes: ["name", "lang"] }],
                 },
               ],
-              raw: false,
-              nest: false,
             },
           ],
-          order: [["createdAt", "DESC"]],
-          raw: true,
-          nest: true,
-        });
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+      raw: false,
+    });
 
-        if (appointments && appointments.length > 0) {
-          resolve({
-            errCode: 0,
-            data: appointments.map((appointment) => ({
-              id: appointment.id,
-              doctorName: `${appointment.doctorInforData.doctorData.firstName} ${appointment.doctorInforData.doctorData.lastName}`,
-              specialty: appointment.doctorInforData.specialty
-                ? appointment.doctorInforData.specialty.name
-                : "N/A",
-              time: appointment.date,
-              timeType: appointment.timeTypeDataPatient ? (appointment.timeTypeDataPatient.valueVi || appointment.timeTypeDataPatient.valueEn) : "",
-              status: appointment.statusDataPatient ? (appointment.statusDataPatient.valueVi || appointment.statusDataPatient.valueEn) : "",
-            })),
-          });
-        } else {
-          resolve({
-            errCode: 0,
-            data: [],
-          });
-        }
-      }
-    } catch (error) {
-      console.error("Error fetching patient appointments:", error);
-      resolve({
-        errCode: -1,
-        errMessage: "Error from the server",
-      });
-    }
-  });
+    const label = (c) => (c ? c.valueVi || c.valueEn : "");
+    return {
+      errCode: 0,
+      data: appointments.map((b) => {
+        const doctor = b.doctorData;
+        const translations = (doctor && doctor.doctorProfile && doctor.doctorProfile.doctorSpecialty
+          && doctor.doctorProfile.doctorSpecialty.specialtyData) || [];
+        const tr = translations.find((t) => t.lang === "vi") || translations[0];
+        return {
+          id: b.id,
+          code: b.code,
+          doctorName: doctor ? `${doctor.firstName} ${doctor.lastName}` : "",
+          specialty: tr ? tr.name : "N/A",
+          time: dateToMs(b.workDate),
+          timeType: label(b.timeTypeDataPatient),
+          status: label(b.statusDataPatient),
+        };
+      }),
+    };
+  } catch (error) {
+    console.error("Error fetching patient appointments:", error);
+    return { errCode: -1, errMessage: "Error from the server" };
+  }
 };
-let getPatientHistory = (patientId) => {
-  return new Promise(async (resolve, reject) => {
-    try {
-      if (!patientId) {
-        resolve({
-          errCode: 1,
-          errMessage: "Missing required parameter: patientId",
-        });
-      } else {
-        let history = await db.History.findAll({
-          where: { patientId: patientId },
-          include: [
-            {
-              model: db.User,
-              attributes: ["firstName", "lastName"],
-            },
-          ],
-          order: [["createdAt", "DESC"]],
-          raw: true,
-          nest: true,
-        });
-        resolve({
-          errCode: 0,
-          data: history,
-        });
-      }
-    } catch (e) {
-      reject(e);
-    }
+
+/** Lịch sử khám (hồ sơ bệnh án) của bệnh nhân. Shape cũ: dòng History + `User` = bác sĩ khám. */
+let getPatientHistory = async (patientId) => {
+  if (!patientId) {
+    return { errCode: 1, errMessage: "Missing required parameter: patientId" };
+  }
+  const records = await db.MedicalRecord.findAll({
+    where: { patientId },
+    include: [{ model: db.User, as: "doctorData", attributes: ["firstName", "lastName"] }],
+    order: [["createdAt", "DESC"]],
+    raw: false,
   });
+  return {
+    errCode: 0,
+    data: records.map((r) => {
+      const plain = r.get({ plain: true });
+      return { ...historyOf(plain), User: plain.doctorData || null };
+    }),
+  };
 };
 module.exports = {
   postBookAppointmentServices: postBookAppointmentServices,
   postVerifyBookAppointment: postVerifyBookAppointment,
+  cancelAppointment: cancelAppointment,
   getPatientAppointments: getPatientAppointments,
   getPatientHistory: getPatientHistory,
 };

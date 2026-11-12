@@ -1,5 +1,40 @@
 const db = require("../models");
 import { Op } from "sequelize";
+
+// Include thông tin người gửi/nhận từ bảng users (schema v2 không còn lưu name/email trong messages).
+const USER_ATTRS = ["id", "lastName", "email", "image"];
+const withUsers = [
+  { model: db.User, as: "sender", attributes: USER_ATTRS, paranoid: false, required: false },
+  { model: db.User, as: "receiver", attributes: USER_ATTRS, paranoid: false, required: false },
+];
+
+const imageOf = (u) =>
+  u && u.image ? Buffer.from(u.image, "base64").toString("binary") : null;
+
+// Chuẩn hoá về đúng shape cũ: {id,msg,sender:{id,name,email,image},receiver:{...},file_*,createdAt,updatedAt}
+// senderId/receiverId lấy từ chính tin nhắn; name = lastName của user.
+const toLegacy = (m, senderId, receiverId) => ({
+  id: m.id,
+  msg: m.body,
+  sender: {
+    id: senderId,
+    name: m.sender ? m.sender.lastName : null,
+    email: m.sender ? m.sender.email : null,
+    image: imageOf(m.sender),
+  },
+  receiver: {
+    id: receiverId,
+    name: m.receiver ? m.receiver.lastName : null,
+    email: m.receiver ? m.receiver.email : null,
+    image: imageOf(m.receiver),
+  },
+  file_url: m.fileUrl,
+  file_type: m.fileType,
+  file_name: m.fileName,
+  createdAt: m.createdAt,
+  updatedAt: m.updatedAt,
+});
+
 let saveMsg = (data) => {
   return new Promise(async (resolve, reject) => {
     try {
@@ -10,51 +45,35 @@ let saveMsg = (data) => {
         });
       } else {
         let savedMsg = await db.Message.create({
-          msg: data.msg,
-          sender_id: data.sender.id,
-          sender_name: data.sender.lastName,
-          sender_email: data.sender.email,
-          receiver_id: data.receiver._id || data.receiver.id,
-          receiver_name: data.receiver.lastName,
-          receiver_email: data.receiver.email,
-          file_url: data.file_url || null,
-          file_type: data.file_type || null,
-          file_name: data.file_name || null,
+          body: data.msg,
+          senderId: data.sender.id,
+          receiverId: data.receiver._id || data.receiver.id,
+          fileUrl: data.file_url || null,
+          fileType: data.file_type || null,
+          fileName: data.file_name || null,
         });
-        // Lấy thông tin hình ảnh của sender và receiver
-        const senderUser = await db.User.findOne({
-          where: { id: savedMsg.sender_id },
+        // Lấy thông tin người gửi/nhận (1 truy vấn, có ảnh)
+        const full = await db.Message.findOne({
+          where: { id: savedMsg.id },
+          include: withUsers,
+          raw: false,
+          nest: true,
         });
-        const receiverUser = await db.User.findOne({
-          where: { id: savedMsg.receiver_id },
-        });
-        const senderImage = senderUser?.image
-          ? Buffer.from(senderUser.image, "base64").toString("binary")
-          : null;
-        const receiverImage = receiverUser?.image
-          ? Buffer.from(receiverUser.image, "base64").toString("binary")
-          : null;
-        let result = {
-          id: savedMsg.id,
-          msg: savedMsg.msg,
-          sender: {
-            id: savedMsg.sender_id,
-            name: savedMsg.sender_name,
-            email: savedMsg.sender_email,
-            image: senderImage,
+        const result = toLegacy(
+          {
+            id: savedMsg.id,
+            body: savedMsg.body,
+            sender: full ? full.sender : null,
+            receiver: full ? full.receiver : null,
+            fileUrl: savedMsg.fileUrl,
+            fileType: savedMsg.fileType,
+            fileName: savedMsg.fileName,
+            createdAt: savedMsg.createdAt,
+            updatedAt: savedMsg.updatedAt,
           },
-          receiver: {
-            id: savedMsg.receiver_id,
-            name: savedMsg.receiver_name,
-            email: savedMsg.receiver_email,
-            image: receiverImage,
-          },
-          file_url: savedMsg.file_url,
-          file_type: savedMsg.file_type,
-          file_name: savedMsg.file_name,
-          createdAt: savedMsg.createdAt,
-          updatedAt: savedMsg.updatedAt,
-        };
+          savedMsg.senderId,
+          savedMsg.receiverId
+        );
 
         resolve({
           errCode: 0,
@@ -80,57 +99,29 @@ let getMsg = (id, userId, offset) => {
         });
       }
 
-      // Truy vấn tin nhắn giữa hai người dùng
+      // Truy vấn tin nhắn giữa hai người dùng (kèm sender/receiver, không còn N+1)
       let allMsg = await db.Message.findAll({
         where: {
           [Op.or]: [
-            { sender_id: id, receiver_id: userId },
-            { sender_id: userId, receiver_id: id },
+            { senderId: id, receiverId: userId },
+            { senderId: userId, receiverId: id },
           ],
         },
-        order: [["createdAt", "DESC"]],
+        include: withUsers,
+        order: [
+          ["createdAt", "DESC"],
+          ["id", "DESC"],
+        ],
         limit: 10,
         offset: offset,
+        raw: false,
+        nest: true,
       });
 
       // Chuẩn hóa kết quả trả về, lấy thêm image
-      let result = await Promise.all(
-        (allMsg || []).reverse().map(async (savedMsg) => {
-          const senderUser = await db.User.findOne({
-            where: { id: savedMsg.sender_id },
-          });
-          const receiverUser = await db.User.findOne({
-            where: { id: savedMsg.receiver_id },
-          });
-          const senderImage = senderUser?.image
-            ? Buffer.from(senderUser.image, "base64").toString("binary")
-            : null;
-          const receiverImage = receiverUser?.image
-            ? Buffer.from(receiverUser.image, "base64").toString("binary")
-            : null;
-          return {
-            id: savedMsg.id,
-            msg: savedMsg.msg,
-            sender: {
-              id: savedMsg.sender_id,
-              name: savedMsg.sender_name,
-              email: savedMsg.sender_email,
-              image: senderImage,
-            },
-            receiver: {
-              id: savedMsg.receiver_id,
-              name: savedMsg.receiver_name,
-              email: savedMsg.receiver_email,
-              image: receiverImage,
-            },
-            file_url: savedMsg.file_url,
-            file_type: savedMsg.file_type,
-            file_name: savedMsg.file_name,
-            createdAt: savedMsg.createdAt,
-            updatedAt: savedMsg.updatedAt,
-          };
-        })
-      );
+      let result = (allMsg || [])
+        .reverse()
+        .map((m) => toLegacy(m, m.senderId, m.receiverId));
 
       // Trả kết quả, dù rỗng
       resolve({
@@ -153,8 +144,7 @@ let delMsg = ({ msgId, userId }) => {
   return new Promise(async (resolve, reject) => {
     try {
       if (!msgId) {
-        console.log("1");
-        resolve({
+                resolve({
           errCode: 1,
           errMessage: "Missing parameter",
         });
@@ -163,57 +153,21 @@ let delMsg = ({ msgId, userId }) => {
           where: { id: msgId },
           raw: false,
         });
-        console.log("msg", msg);
 
         if (!msg) {
-          console.log("2");
           resolve({
             errCode: 2,
             errMessage: "Message not found",
           });
         } else {
           // Optional: Check if userId matches senderId for authorization
-          if (msg.sender_id != userId) {
-            console.log("3", msg.senderId, userId);
-            return {
+          if (msg.senderId != userId) {
+            return resolve({
               errCode: 3,
               errMessage: "Unauthorized to delete this message",
-            };
+            });
           }
           await msg.destroy();
-
-          // // Lấy thông tin hình ảnh của sender và receiver
-          // const senderUser = await db.User.findOne({
-          //   where: { id: msg.sender_id },
-          // });
-          // const receiverUser = await db.User.findOne({
-          //   where: { id: msg.receiver_id },
-          // });
-          // const senderImage = senderUser?.image
-          //   ? Buffer.from(senderUser.image, "base64").toString("binary")
-          //   : null;
-          // const receiverImage = receiverUser?.image
-          //   ? Buffer.from(receiverUser.image, "base64").toString("binary")
-          //   : null;
-
-          // let msgData = {
-          //   id: msg.id,
-          //   msg: msg.msg,
-          //   sender: {
-          //     id: msg.sender_id,
-          //     name: msg.sender_name,
-          //     email: msg.sender_email,
-          //     image: senderImage,
-          //   },
-          //   receiver: {
-          //     id: msg.receiver_id,
-          //     name: msg.receiver_name,
-          //     email: msg.receiver_email,
-          //     image: receiverImage,
-          //   },
-          //   createdAt: msg.createdAt,
-          //   updatedAt: msg.updatedAt,
-          // };
 
           resolve({
             errMessage: "delMsg",
