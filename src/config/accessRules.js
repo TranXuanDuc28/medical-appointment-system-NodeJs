@@ -64,6 +64,25 @@ module.exports = {
     ["POST", "/api/update-medical-appointment-status", [P.PRESCRIPTION_CREATE]],
     ["GET", "/api/get-medicines", [P.MEDICINE_READ]],
 
+    // ---- Hàng đợi (quyền chi tiết + kiểm tra chủ vé/bác sĩ nằm trong queueService) ----
+    ["POST", "/api/queue/check-in", AUTH], // nhân viên có queue:checkin hoặc chính bệnh nhân đặt lịch
+    ["POST", "/api/queue/walk-in", [P.QUEUE_WALKIN_CREATE]],
+    ["POST", "/api/queue/doctor/call-next", [P.QUEUE_CALL]],
+    ["GET", "/api/queue/doctor/board", [P.QUEUE_CALL]],
+    ["POST", "/api/queue/tickets/:id/call", [P.QUEUE_CALL]],
+    ["POST", "/api/queue/tickets/:id/start", [P.QUEUE_START]],
+    ["POST", "/api/queue/tickets/:id/finish", [P.QUEUE_FINISH]],
+    ["POST", "/api/queue/tickets/:id/no-show", [P.QUEUE_NOSHOW]],
+    ["POST", "/api/queue/tickets/:id/postpone", AUTH], // chủ vé hoặc queue:checkin
+    ["POST", "/api/queue/tickets/:id/emergency", [P.QUEUE_EMERGENCY]],
+    ["POST", "/api/queue/tickets/:id/cancel", AUTH], // chủ vé hoặc queue:checkin
+    ["GET", "/api/queue/my-tickets", AUTH],
+    ["GET", "/api/queue/rooms/:roomId/display", [P.QUEUE_DISPLAY_READ, P.QUEUE_CALL, P.QUEUE_CHECKIN, P.QUEUE_REBALANCE]],
+    ["GET", "/api/queue/rooms", [P.QUEUE_CHECKIN, P.QUEUE_CALL, P.QUEUE_REBALANCE, P.ROOM_MANAGE]],
+    ["POST", "/api/queue/rooms", [P.ROOM_MANAGE]],
+    ["PUT", "/api/queue/rooms/:id", [P.ROOM_MANAGE]],
+    ["PUT", "/api/queue/assign-room", [P.ROOM_MANAGE]],
+
     // ---- Thanh toán ----
     ["GET", "/api/check-paid", [P.PAYMENT_READ]],
     ["POST", "/api/send-payment", [P.PAYMENT_CONFIRM]],

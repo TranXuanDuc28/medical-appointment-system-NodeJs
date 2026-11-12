@@ -51,6 +51,7 @@ const P = {
   QUEUE_EMERGENCY: "queue:emergency",
   QUEUE_REBALANCE: "queue:rebalance",
   QUEUE_DISPLAY_READ: "queue:display:read",
+  ROOM_MANAGE: "room:manage",
 };
 
 const DESCRIPTIONS = {
@@ -89,6 +90,7 @@ const DESCRIPTIONS = {
   [P.QUEUE_EMERGENCY]: "Ưu tiên khẩn cấp",
   [P.QUEUE_REBALANCE]: "Cân bằng tải phòng khám",
   [P.QUEUE_DISPLAY_READ]: "Đọc dữ liệu màn hình TV sảnh",
+  [P.ROOM_MANAGE]: "Quản lý phòng khám vật lý và gán phòng cho bác sĩ",
 };
 
 const PERMISSIONS = Object.values(P).map((code) => ({
@@ -103,7 +105,7 @@ const ADMIN_PERMS = [
   P.BOOKING_CANCEL_OWN, P.BOOKING_CANCEL_ANY, P.BOOKING_READ_OWN, P.BOOKING_READ_ANY,
   P.RECORD_READ_OWN, // Admin KHÔNG mặc định xem hồ sơ bệnh án của người khác (bật thủ công khi cần)
   P.PATIENT_LIST_READ, P.MEDICINE_READ, P.PAYMENT_READ, P.PAYMENT_CONFIRM,
-  P.CONTENT_MANAGE, P.ANALYTICS_READ, P.AI_METRICS_READ, P.AUDIT_READ,
+  P.CONTENT_MANAGE, P.ANALYTICS_READ, P.AI_METRICS_READ, P.AUDIT_READ, P.ROOM_MANAGE,
 ];
 
 /** Quyền không được phép gỡ khỏi ADMIN (chống tự khoá hệ thống). */
