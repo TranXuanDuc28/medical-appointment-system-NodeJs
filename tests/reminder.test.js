@@ -88,7 +88,7 @@ const setup = async () => {
     await db.Notification.destroy({ where: { userId: { [Op.in]: created.users } } });
     await db.Booking.destroy({ where: { id: { [Op.in]: created.bookings } } });
     if (created.scheduleId) await db.Schedule.destroy({ where: { id: created.scheduleId } });
-    await db.User.destroy({ where: { id: { [Op.in]: created.users } } });
+    await db.User.destroy({ where: { id: { [Op.in]: created.users } }, force: true });
   };
   return { db, patientId, booking, doctorId: Number(doctor.doctorId), slotAt: new Date(`${date}T08:00:00+07:00`), cleanup };
 };
