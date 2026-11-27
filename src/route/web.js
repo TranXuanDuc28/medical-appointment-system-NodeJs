@@ -14,6 +14,7 @@ import handbookController from "../controllers/handbookController";
 import questionController from "../controllers/questionController";
 import { cacheMiddleware, invalidateCache } from "../utils/redis";
 import rbacController from "../controllers/rbacController";
+import queueController from "../controllers/queueController";
 import { selfOrPermission, doctorSelf } from "../middleware/ownership";
 import { medicalRecordPolicy, appointmentReadPolicy } from "../middleware/policies";
 import { P } from "../config/permissions";
@@ -75,6 +76,24 @@ let initWebRoutes = (app) => {
   }
   // API routes (quyền truy cập được áp dụng tập trung bởi middleware accessControl
   // dựa trên config/accessRules.js; ở đây chỉ thêm kiểm tra sở hữu dữ liệu)
+  // Hàng đợi khám bệnh (quyền kiểm bởi accessControl theo accessRules + kiểm tra chủ vé/bác sĩ trong queueService)
+  router.post("/api/queue/check-in", queueController.checkIn);
+  router.post("/api/queue/walk-in", queueController.walkIn);
+  router.post("/api/queue/doctor/call-next", queueController.callNext);
+  router.get("/api/queue/doctor/board", queueController.doctorBoard);
+  router.post("/api/queue/tickets/:id/call", queueController.call);
+  router.post("/api/queue/tickets/:id/start", queueController.start);
+  router.post("/api/queue/tickets/:id/finish", queueController.finish);
+  router.post("/api/queue/tickets/:id/no-show", queueController.noShow);
+  router.post("/api/queue/tickets/:id/postpone", queueController.postpone);
+  router.post("/api/queue/tickets/:id/emergency", queueController.emergency);
+  router.post("/api/queue/tickets/:id/cancel", queueController.cancel);
+  router.get("/api/queue/my-tickets", queueController.myTickets);
+  router.get("/api/queue/rooms/:roomId/display", queueController.roomDisplay);
+  router.get("/api/queue/rooms", queueController.listRooms);
+  router.post("/api/queue/rooms", queueController.createRoom);
+  router.put("/api/queue/rooms/:id", queueController.updateRoom);
+  router.put("/api/queue/assign-room", queueController.assignRoom);
   // RBAC & audit (quyền kiểm bởi accessControl theo accessRules)
   router.get("/api/rbac/me", rbacController.me);
   router.get("/api/rbac/roles", rbacController.listRoles);
