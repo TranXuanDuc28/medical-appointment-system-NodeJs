@@ -8,6 +8,7 @@ const bus = new EventEmitter();
 bus.setMaxListeners(50);
 
 const CHANGED = "queue:changed";
+const NOTIFIED = "notification:created";
 
 /** payload: { event, ticketId, roomId, doctorId, ticketDate, shift, patientUserId?, status } */
 const emitChanged = (payload) => {
@@ -18,4 +19,13 @@ const emitChanged = (payload) => {
   }
 };
 
-module.exports = { bus, CHANGED, emitChanged };
+/** payload: { userId, notification } – phát sau khi thông báo đã lưu DB; socket đẩy tới user:<id>. */
+const emitNotified = (payload) => {
+  try {
+    bus.emit(NOTIFIED, payload);
+  } catch (e) {
+    console.error("[Bus] listener thông báo lỗi:", e.message);
+  }
+};
+
+module.exports = { bus, CHANGED, NOTIFIED, emitChanged, emitNotified };
