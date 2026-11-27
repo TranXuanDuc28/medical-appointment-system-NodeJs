@@ -15,6 +15,8 @@ const db = require("../../models/index");
 const { todayDate, msToDate } = require("../../utils/dateKey");
 const { emitChanged } = require("../../utils/queueBus");
 const { estimateForDoctor } = require("./queueEta");
+const queueAi = require("../ai/queueAi");
+const aiPredictions = require("../ai/aiPredictions");
 const {
   STATUS, EVENT, ACTIVE_STATUSES, CONFIG, QueueError,
   canTransition, computeSortAt, compareTickets, postponeSortAt, formatDisplayNo,
@@ -174,6 +176,12 @@ const run = async (fn, { event }) => {
   const patientUserId = await patientUserIdOf(ticket);
   afterCommit(ticket, event, { patientUserId, ...publicExtra });
   if (typeof postCommit === "function") await postCommit();
+  // Ghi nhận dữ liệu đối sánh AI: dự đoán lúc vào hàng, kết quả thực tế lúc khám xong (best-effort, không ảnh hưởng thao tác chính)
+  if ((event === EVENT.CHECK_IN || event === EVENT.WALK_IN) && !publicExtra.idempotent) {
+    etaDetail(ticket.id).then((e) => e && aiPredictions.recordInitial(e)).catch((err) => console.error("[AI] không ghi được dự đoán:", err.message));
+  } else if (event === EVENT.FINISH) {
+    aiPredictions.recordActual(ticket.id).catch((err) => console.error("[AI] không ghi được kết quả thực tế:", err.message));
+  }
   return getTicket(ticket.id);
 };
 
@@ -421,19 +429,35 @@ const publicTicket = (t, eta) => {
     patientName, booking: t.booking ? { id: Number(t.booking.id), code: t.booking.code } : null,
     checkInAt: t.checkInAt, calledAt: t.calledAt, startedAt: t.startedAt, finishedAt: t.finishedAt,
     callCount: t.callCount, postponedCount: t.postponedCount,
-    ...(eta ? { aheadCount: eta.aheadCount, estimatedWaitMin: eta.waitMinutes, estimatedStartAt: eta.estimatedStartAt, etaBasis: eta.basis } : {}),
+    ...(eta ? { aheadCount: eta.aheadCount, estimatedWaitMin: eta.waitMinutes, estimatedStartAt: eta.estimatedStartAt, etaBasis: eta.basis,
+      predictedDurationMin: Math.round(eta.durationMin * 10) / 10,
+      ...(eta.basis === "ml" ? { predictedDurationRangeMin: [eta.p10, eta.p90], modelVersion: eta.modelVersion } : {}) } : {}),
   };
 };
 
 const loadPlain = (where, extra = {}) =>
   db.QueueTicket.findAll({ where, include: TICKET_INCLUDE, raw: false, ...extra }).then((rows) => rows.map((r) => r.get({ plain: true })));
 
-/** ETA cho tất cả vé đang hoạt động của một bác sĩ trong ngày. */
+/**
+ * ETA cho tất cả vé đang hoạt động của một bác sĩ trong ngày.
+ * Thời lượng từng ca: AI Service (gọi MỘT lần theo lô) -> trung bình lịch sử của bác sĩ -> mặc định. AI lỗi/tắt thì tự dùng dự phòng.
+ */
 const etaForDoctor = async (doctorId, ticketDate) => {
   const active = await db.QueueTicket.findAll({
     where: { doctorId, ticketDate, status: { [Op.in]: ACTIVE_STATUSES } }, raw: true,
   });
-  return estimateForDoctor(active, await historyAvgMinutes(doctorId));
+  const avg = await historyAvgMinutes(doctorId);
+  const durations = await queueAi.predictDurations(active, { doctorId, avgMinutes: avg });
+  return estimateForDoctor(active, avg, new Date(), { durations });
+};
+
+/** Chi tiết ETA nội bộ của một vé (kèm thời lượng đã dùng, phiên bản mô hình, baseline) – dùng để ghi ai_predictions. */
+const etaDetail = async (ticketId) => {
+  const t = await db.QueueTicket.findOne({ where: { id: ticketId }, raw: true });
+  if (!t || !ACTIVE_STATUSES.includes(t.status)) return null;
+  const etas = await etaForDoctor(t.doctorId, t.ticketDate);
+  const e = etas.get(Number(t.id));
+  return e ? { ticketId: Number(t.id), ...e } : null;
 };
 
 const getTicket = async (id) => {
@@ -564,5 +588,6 @@ module.exports = {
   getTicket, getDoctorBoard, getMyTickets, getRoomDisplay, getRoomSnapshot, getActiveTicketsForPush,
   listRooms, createRoom, updateRoom, assignRoom,
   // dùng cho test
+  etaDetail,
   _internal: { isPriorityAge, currentShift, resolveRoom, historyAvgMinutes },
 };
