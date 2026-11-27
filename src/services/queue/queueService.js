@@ -15,6 +15,7 @@ const db = require("../../models/index");
 const { todayDate, msToDate } = require("../../utils/dateKey");
 const { emitChanged } = require("../../utils/queueBus");
 const { estimateForDoctor } = require("./queueEta");
+const { projectWalkInWait, rankCandidates } = require("./queueBalance");
 const queueAi = require("../ai/queueAi");
 const aiPredictions = require("../ai/aiPredictions");
 const {
@@ -93,7 +94,7 @@ const createTicket = async (data, actor, eventType, t) => {
     },
     { transaction: t }
   );
-  await logEvent(ticket.id, eventType, actor, { seq, displayNo: ticket.displayNo, priority: data.priority, sortAt: data.sortAt }, t);
+  await logEvent(ticket.id, eventType, actor, { seq, displayNo: ticket.displayNo, priority: data.priority, sortAt: data.sortAt, ...(data.eventExtra || {}) }, t);
   return ticket;
 };
 const lockRoom = (roomId, t) => lockRow(db.Room, { id: roomId }, t);
@@ -225,9 +226,109 @@ const checkIn = async ({ bookingId, actor }) =>
     return { ticket };
   }, { event: EVENT.CHECK_IN });
 
-/** Đăng ký bệnh nhân vãng lai tại quầy (không có tài khoản/lịch hẹn). */
-const createWalkIn = async ({ doctorId, name, phone, priority = "NORMAL", actor }) =>
-  run(async (t) => {
+/**
+ * Các bác sĩ đang trực (ca hiện tại) kèm thời gian chờ dự kiến của MỘT vé vãng lai mới, xếp hạng chờ ngắn nhất trước.
+ * Lọc theo chuyên khoa/phòng khám (tuỳ chọn). Bác sĩ chưa có phòng bị loại.
+ * Ước tính dùng thời lượng trung bình thực tế của từng bác sĩ (không gọi AI cho từng ứng viên để giữ nhanh).
+ */
+const loadWalkInCandidates = async ({ specialtyId, clinicId, priority = "NORMAL", now = new Date() } = {}) => {
+  const today = todayDate();
+  const shift = currentShift(now);
+  const profileWhere = {};
+  if (specialtyId) profileWhere.specialtyId = specialtyId;
+  if (clinicId) profileWhere.clinicId = clinicId;
+  const profiles = await db.DoctorProfile.findAll({ where: profileWhere, attributes: ["doctorId"], raw: true });
+  if (!profiles.length) return [];
+  const ids = profiles.map((p) => Number(p.doctorId));
+
+  // Mã khung giờ thuộc ca hiện tại + giờ bắt đầu thật của từng khung
+  const slots = await db.AllCode.findAll({ where: { type: "TIME" }, attributes: ["keyMap", "meta"], raw: true });
+  const slotMeta = new Map();
+  for (const r of slots) {
+    let m = r.meta;
+    if (typeof m === "string") {
+      try { m = JSON.parse(m); } catch (_) { m = null; }
+    }
+    if (m && m.start) slotMeta.set(r.keyMap, { start: m.start, shift: m.shift || (Number(m.start.slice(0, 2)) < 12 ? "MORNING" : "AFTERNOON") });
+  }
+  const shiftCodes = [...slotMeta].filter(([, v]) => v.shift === shift).map(([k]) => k);
+  if (!shiftCodes.length) return [];
+
+  const onDuty = await db.Schedule.findAll({
+    where: { doctorId: { [Op.in]: ids }, workDate: today, timeType: { [Op.in]: shiftCodes }, status: { [Op.ne]: "closed" } },
+    attributes: ["doctorId"], raw: true,
+  });
+  const dutyIds = [...new Set(onDuty.map((r) => Number(r.doctorId)))];
+  if (!dutyIds.length) return [];
+
+  const [tickets, bookings, users] = await Promise.all([
+    db.QueueTicket.findAll({ where: { doctorId: { [Op.in]: dutyIds }, ticketDate: today, status: { [Op.in]: ACTIVE_STATUSES } }, raw: true }),
+    db.Booking.findAll({ where: { doctorId: { [Op.in]: dutyIds }, workDate: today, statusId: "S2" }, attributes: ["id", "doctorId", "timeType"], raw: true }),
+    db.User.findAll({ where: { id: { [Op.in]: dutyIds } }, attributes: ["id", "firstName", "lastName"], raw: true }),
+  ]);
+  const ticketed = new Set(
+    bookings.length
+      ? (await db.QueueTicket.findAll({ where: { bookingId: { [Op.in]: bookings.map((b) => b.id) } }, attributes: ["bookingId"], raw: true })).map((t) => Number(t.bookingId))
+      : []
+  );
+  const name = new Map(users.map((u) => [Number(u.id), `${u.firstName || ""} ${u.lastName || ""}`.trim()]));
+
+  const out = [];
+  for (const doctorId of dutyIds) {
+    let room;
+    try {
+      room = await resolveRoom({ doctorId, workDate: today });
+    } catch (e) {
+      if (e instanceof QueueError) continue;
+      throw e;
+    }
+    const active = tickets.filter((t) => Number(t.doctorId) === doctorId);
+    const pending = bookings
+      .filter((b) => Number(b.doctorId) === doctorId && !ticketed.has(Number(b.id)) && slotMeta.has(b.timeType))
+      .map((b) => ({ id: b.id, slotStart: new Date(`${today}T${slotMeta.get(b.timeType).start}:00+07:00`) }));
+    const proj = await projectWalkInWait(active, await historyAvgMinutes(doctorId), { priority, pending, now });
+    out.push({
+      doctorId, doctorName: name.get(doctorId) || null,
+      room: { id: Number(room.id), code: room.code, name: room.name, floor: room.floor },
+      waitingCount: active.filter((t) => t.status === STATUS.WAITING).length,
+      inServiceCount: active.filter((t) => t.status !== STATUS.WAITING).length,
+      expectedBookedArrivals: pending.filter((b) => b.slotStart <= now).length,
+      waitMin: proj.waitMin, aheadCount: proj.aheadCount, estimatedStartAt: proj.estimatedStartAt, basis: proj.basis,
+    });
+  }
+  return rankCandidates(out);
+};
+
+/** Gợi ý bác sĩ cho bệnh nhân vãng lai (nhân viên quầy xem bảng tải trước khi đăng ký). */
+const suggestWalkInDoctors = async ({ specialtyId, clinicId, priority = "NORMAL", actor }) => {
+  if (!has(actor, P.WALKIN) && !has(actor, "queue:rebalance")) throw forbid();
+  if (!["NORMAL", "ELDERLY", "EMERGENCY"].includes(priority)) throw new QueueError("BAD_REQUEST", "Mức ưu tiên không hợp lệ", 400);
+  const candidates = await loadWalkInCandidates({ specialtyId: specialtyId || undefined, clinicId: clinicId || undefined, priority });
+  return { shift: currentShift(), recommendedDoctorId: candidates.length ? candidates[0].doctorId : null, candidates };
+};
+
+/**
+ * Đăng ký bệnh nhân vãng lai tại quầy (không có tài khoản/lịch hẹn).
+ *  - Có doctorId: xếp đúng bác sĩ đó (như cũ).
+ *  - Không có doctorId: cần specialtyId (và/hoặc clinicId) -> tự chọn bác sĩ đang trực có thời gian chờ ngắn nhất (cân bằng tải).
+ *    Lý do chọn được ghi vào queue_events.payload (assignedBy/considered) để truy vết.
+ */
+const createWalkIn = async ({ doctorId, specialtyId, clinicId, name, phone, priority = "NORMAL", actor }) => {
+  let balance = null;
+  if (!doctorId) {
+    if (!has(actor, P.WALKIN)) throw forbid();
+    if (!["NORMAL", "ELDERLY", "EMERGENCY"].includes(priority)) throw new QueueError("BAD_REQUEST", "Mức ưu tiên không hợp lệ", 400);
+    if (!specialtyId && !clinicId) throw new QueueError("BAD_REQUEST", "Cần chọn bác sĩ hoặc chuyên khoa để hệ thống tự phân phòng", 400);
+    const candidates = await loadWalkInCandidates({ specialtyId, clinicId, priority });
+    if (!candidates.length) throw new QueueError("NO_DOCTOR_AVAILABLE", "Hiện không có bác sĩ nào đang trực (có phòng) cho chuyên khoa này", 409);
+    const best = candidates[0];
+    doctorId = best.doctorId;
+    balance = {
+      assignedBy: "AUTO", chosenWaitMin: best.waitMin,
+      considered: candidates.map((c) => ({ doctorId: c.doctorId, waitMin: c.waitMin, waiting: c.waitingCount })),
+    };
+  }
+  return run(async (t) => {
     if (!has(actor, P.WALKIN)) throw forbid();
     if (!name || String(name).trim().length < 2) throw new QueueError("BAD_REQUEST", "Thiếu họ tên bệnh nhân", 400);
     if (!["NORMAL", "ELDERLY", "EMERGENCY"].includes(priority)) throw new QueueError("BAD_REQUEST", "Mức ưu tiên không hợp lệ", 400);
@@ -241,11 +342,12 @@ const createWalkIn = async ({ doctorId, name, phone, priority = "NORMAL", actor 
     const sortAt = computeSortAt({ source: "WALK_IN", checkInAt: now, priority });
     const ticket = await createTicket(
       { roomId: room.id, doctorId, ticketDate, shift: currentShift(now), source: "WALK_IN", priority, checkInAt: now, sortAt,
-        walkInName: String(name).trim(), walkInPhone: phone ? String(phone).trim() : null },
+        walkInName: String(name).trim(), walkInPhone: phone ? String(phone).trim() : null, eventExtra: balance },
       actor, EVENT.WALK_IN, t
     );
     return { ticket };
   }, { event: EVENT.WALK_IN });
+};
 
 /* ------------------------------ ghi: bác sĩ xử lý ------------------------------ */
 
@@ -584,10 +686,10 @@ const assignRoom = async ({ doctorId, date, roomId }, actor) => {
 };
 
 module.exports = {
-  checkIn, createWalkIn, callTicket, callNext, startTicket, finishTicket, markNoShow, postpone, emergency, cancel,
+  checkIn, createWalkIn, suggestWalkInDoctors, callTicket, callNext, startTicket, finishTicket, markNoShow, postpone, emergency, cancel,
   getTicket, getDoctorBoard, getMyTickets, getRoomDisplay, getRoomSnapshot, getActiveTicketsForPush,
   listRooms, createRoom, updateRoom, assignRoom,
   // dùng cho test
-  etaDetail,
+  etaDetail, loadWalkInCandidates,
   _internal: { isPriorityAge, currentShift, resolveRoom, historyAvgMinutes },
 };

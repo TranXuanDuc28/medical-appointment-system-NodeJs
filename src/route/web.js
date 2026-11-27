@@ -84,6 +84,7 @@ let initWebRoutes = (app) => {
   // Hàng đợi khám bệnh (quyền kiểm bởi accessControl theo accessRules + kiểm tra chủ vé/bác sĩ trong queueService)
   router.post("/api/queue/check-in", queueController.checkIn);
   router.post("/api/queue/walk-in", queueController.walkIn);
+  router.get("/api/queue/walk-in/suggest", queueController.suggestWalkIn);
   router.post("/api/queue/doctor/call-next", queueController.callNext);
   router.get("/api/queue/doctor/board", queueController.doctorBoard);
   router.post("/api/queue/tickets/:id/call", queueController.call);

@@ -46,7 +46,8 @@ Quyền do bảng `accessRules` + RBAC quy định; kiểm tra chủ vé/bác s�
 | Method | Đường dẫn | Ai | Mô tả |
 |---|---|---|---|
 | POST | `/check-in` `{bookingId}` | nhân viên `queue:checkin` hoặc chính bệnh nhân | Vào hàng (lịch hẹn phải đã xác nhận và đúng ngày). Idempotent |
-| POST | `/walk-in` `{doctorId, fullName, phone?, priority?}` | `queue:walkin:create` | Đăng ký vãng lai |
+| POST | `/walk-in` `{doctorId?, specialtyId?, clinicId?, fullName, phone?, priority?}` | `queue:walkin:create` | Đăng ký vãng lai. Có `doctorId`: xếp đúng bác sĩ đó. Không có: cần `specialtyId` và/hoặc `clinicId`, hệ thống **tự chọn bác sĩ đang trực chờ ngắn nhất** (xem "Cân bằng tải") |
+| GET | `/walk-in/suggest?specialtyId=&clinicId=&priority=` | `queue:walkin:create` hoặc `queue:rebalance` | Bảng tải các bác sĩ đang trực, xếp theo thời gian chờ dự kiến của một vé vãng lai mới; `recommendedDoctorId` là người được chọn |
 | POST | `/doctor/call-next` | `queue:call` | Gọi người đứng đầu hàng của bác sĩ |
 | GET | `/doctor/board?date=` | `queue:call` | Đang xử lý + hàng chờ (đã sắp, có ETA) + đã xong + thống kê |
 | POST | `/tickets/:id/call` `/start` `/finish` `/no-show` | `queue:call` / `start` / `finish` / `noshow` | Thao tác theo vé (chỉ bác sĩ của vé) |
@@ -92,6 +93,17 @@ Migration `20261202000000-queue-engine-columns.js` (chỉ thêm, có `down`): `q
 ## 9. Chưa làm trong nhánh này (kế hoạch tiếp)
 
 - Nhắc hẹn 24h/2h và cảnh báo "còn 2–3 người" (cần scheduler BullMQ) — dữ liệu `QUEUE_TICKET_UPDATED` đã đủ để kích hoạt.
-- Cân bằng tải tự động giữa các phòng cùng chuyên khoa cho bệnh nhân vãng lai (hiện chọn bác sĩ thủ công).
 - Cắm mô hình ML dự đoán thời lượng (`setDurationPredictor`) và ghi `ai_predictions` để đối sánh dự đoán/thực tế.
 - Giao diện: vé QR + theo dõi hàng đợi, bảng bác sĩ, màn hình TV, quản lý phòng.
+
+## Cân bằng tải cho bệnh nhân vãng lai
+
+Bệnh nhân vãng lai chọn **chuyên khoa** (hoặc phòng khám) thay vì bác sĩ; `queueBalance.js` + `queueService.loadWalkInCandidates` chọn bác sĩ cho họ:
+
+1. **Ứng viên**: bác sĩ thuộc chuyên khoa/phòng khám đó, có lịch hôm nay **chưa đóng** trong **ca hiện tại** (sáng/chiều theo `reference_codes.meta.shift`) và phân giải được phòng (lịch → phòng cùng chuyên khoa → phòng của phòng khám). Không có ai → lỗi `NO_DOCTOR_AVAILABLE` (409).
+2. **Thời gian chờ** của mỗi ứng viên = ETA của một **vé giả** (vãng lai, đúng mức ưu tiên) "thử xếp" vào hàng đợi bác sĩ đó bằng chính luật sắp xếp và `estimateForDoctor` của hàng đợi thật. Nhờ vậy người cao tuổi/khẩn cấp được tính đúng (vượt người thường), và ca đang khám được trừ phần đã khám.
+3. **Lịch hẹn chưa đến** nhưng giờ hẹn đã tới và còn trong ân hạn 15 phút được tính như người sắp đứng trước (tránh dồn vãng lai vào bác sĩ sắp đông người đã hẹn).
+4. **Xếp hạng**: chờ ngắn nhất → ít người đang chờ hơn → id bác sĩ nhỏ hơn (ổn định, dễ giải thích).
+5. Lý do chọn được ghi vào `queue_events.payload` của sự kiện `WALK_IN` (`assignedBy: "AUTO"`, `chosenWaitMin`, `considered[]`) để truy vết/đánh giá.
+
+Giới hạn: ước tính ứng viên dùng trung bình thực tế của từng bác sĩ (không gọi AI cho từng ứng viên, giữ phản hồi nhanh; vé thật vẫn được ETA bằng AI như cũ). Việc chọn và tạo vé là hai bước nên khi nhiều quầy đăng ký đúng lúc có thể lệch 1 người (số thứ tự vẫn không trùng nhờ khoá phòng). **Chưa có** chuyển vé đang chờ sang phòng khác khi một phòng quá tải (quyền `queue:rebalance` mới dùng để xem bảng tải).

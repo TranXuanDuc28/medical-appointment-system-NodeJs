@@ -22,10 +22,12 @@ const actorOf = (req) => req.user;
 const checkIn = handle(async (req) => queue.checkIn({ bookingId: Number((req.body || {}).bookingId), actor: actorOf(req) }));
 const walkIn = handle(async (req) => {
   const b = req.body || {};
-  const ticket = await queue.createWalkIn({ doctorId: Number(b.doctorId), name: b.fullName || b.name, phone: b.phone, priority: b.priority, actor: actorOf(req) });
+  const ticket = await queue.createWalkIn({ doctorId: b.doctorId ? Number(b.doctorId) : null, specialtyId: b.specialtyId ? Number(b.specialtyId) : null, clinicId: b.clinicId ? Number(b.clinicId) : null, name: b.fullName || b.name, phone: b.phone, priority: b.priority, actor: actorOf(req) });
   audit.log({ req, action: "QUEUE_WALK_IN", resource: "queue-ticket", resourceId: ticket.id });
   return ticket;
 });
+const suggestWalkIn = handle(async (req) =>
+  queue.suggestWalkInDoctors({ specialtyId: Number(req.query.specialtyId) || null, clinicId: Number(req.query.clinicId) || null, priority: req.query.priority || "NORMAL", actor: actorOf(req) }));
 const callNext = handle(async (req) => queue.callNext({ doctorId: (req.body || {}).doctorId, actor: actorOf(req) }));
 const call = handle(async (req) => queue.callTicket({ ticketId: idOf(req), actor: actorOf(req) }));
 const start = handle(async (req) => queue.startTicket({ ticketId: idOf(req), actor: actorOf(req) }));
@@ -50,6 +52,6 @@ const updateRoom = handle(async (req) => queue.updateRoom(idOf(req), req.body ||
 const assignRoom = handle(async (req) => queue.assignRoom(req.body || {}, actorOf(req)));
 
 module.exports = {
-  checkIn, walkIn, callNext, call, start, finish, noShow, postpone, cancel, emergency,
+  checkIn, walkIn, suggestWalkIn, callNext, call, start, finish, noShow, postpone, cancel, emergency,
   doctorBoard, myTickets, roomDisplay, listRooms, createRoom, updateRoom, assignRoom,
 };
