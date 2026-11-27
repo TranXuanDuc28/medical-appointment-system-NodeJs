@@ -94,7 +94,8 @@ module.exports = {
     // Webhook: tự xác thực bằng chữ ký/token trong controller
     ["POST", "/api/payos/webhook", PUBLIC],
     ["POST", "/api/casso/webhook", PUBLIC],
-    ["POST", "/api/payos/create-payment-link", PUBLIC],
+    // Chỉ thu ngân/nhân viên có quyền xác nhận thanh toán; số tiền do server lấy từ hoá đơn, không nhận từ client
+    ["POST", "/api/payos/create-payment-link", [P.PAYMENT_CONFIRM]],
 
     // ---- Chat / upload ----
     ["GET", "/api/get-msg/:receiverId", AUTH],
