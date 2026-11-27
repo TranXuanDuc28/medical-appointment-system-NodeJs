@@ -23,9 +23,23 @@ Hai loại thông báo gửi cho bệnh nhân (bảng `notifications` + FCM push
 | `REMINDER_AHEAD_THRESHOLDS` | `3,1` | Cảnh báo khi còn ≤ N người phía trước (mỗi ngưỡng 1 lần/vé) |
 
 ## Giới hạn hiện tại
-- Kênh gửi: INAPP (ghi DB) + FCM push. **Chưa có email/SMS nhắc hẹn.** Chưa có API đọc/đánh dấu đã đọc `notifications` (frontend cần thêm).
+- Kênh gửi: INAPP (ghi DB) + FCM push + socket realtime. **Chưa có email/SMS nhắc hẹn.**
 - Bệnh nhân vãng lai (walk-in, không có tài khoản) không nhận cảnh báo vì không có `userId`.
 - Nếu Firebase chưa cấu hình, push chỉ in log (chế độ mock); thông báo INAPP vẫn được lưu.
 
 ## Kiểm thử
 `npm test` chạy 4 test thuần (cửa sổ, ngưỡng, debounce). Với DB thật: `RUN_DB_TESTS=1 npm test` thêm 2 test quét lịch + chống gửi trùng + ngưỡng hàng đợi (dữ liệu tạm `rmtest-*`, ngày 2031-03-05, tự dọn).
+
+## API thông báo cho frontend
+Tất cả cần đăng nhập (cookie `jwt` hoặc Bearer); luôn chỉ thao tác trên thông báo của **chính người đăng nhập** (userId lấy từ token). Phản hồi dạng `{errCode, errMessage, data}`.
+
+| Method | Đường dẫn | Mô tả |
+|---|---|---|
+| GET | `/api/notifications?limit=20&before=<id>&unread=1` | Mới nhất trước. `limit` 1–50 (mặc định 20). Phân trang: truyền `before = data.nextBefore` của trang trước; `nextBefore = null` khi hết. `unread=1` chỉ lấy chưa đọc. Trả `{items[], unreadCount, nextBefore}` |
+| GET | `/api/notifications/unread-count` | `{unreadCount}` – số trên chuông |
+| POST | `/api/notifications/:id/read` | Đánh dấu đã đọc (idempotent). 404 nếu không phải thông báo của mình. Trả `{unreadCount}` |
+| POST | `/api/notifications/read-all` | Đọc hết. Trả `{updated, unreadCount: 0}` |
+
+Mỗi item: `{id, type, title, body, payload, createdAt, readAt, isRead}`. `type`: `APPT_REMIND_24H`, `APPT_REMIND_2H`, `QUEUE_NEARING`. `payload` để điều hướng: nhắc hẹn có `{bookingId, code, slotAt}`, sắp đến lượt có `{ticketId, displayNo, aheadCount, estimatedWaitMin}`.
+
+**Realtime:** socket (đã đăng nhập) nhận `NOTIFICATION_NEW {notification}` (cùng dạng item) ngay khi có thông báo mới → tăng số trên chuông, chèn đầu danh sách, không cần polling. Gọi `unread-count` khi mở app để đồng bộ.

@@ -24,6 +24,11 @@ module.exports = {
     ["POST", "/api/refresh-token", PUBLIC],
     ["POST", "/api/login-patient-chat", PUBLIC],
     ["POST", "/api/save-fcm-token", AUTH], // chính chủ hoặc user:update (kiểm ở route)
+    // ---- Thông báo (luôn chỉ của chính người dùng đăng nhập) ----
+    ["GET", "/api/notifications", AUTH],
+    ["GET", "/api/notifications/unread-count", AUTH],
+    ["POST", "/api/notifications/read-all", AUTH],
+    ["POST", "/api/notifications/:id/read", AUTH],
 
     // ---- Quản lý người dùng & vai trò ----
     ["GET", "/api/get_all_users", AUTH], // id=ALL cần user:read:any, id khác chỉ chính chủ
