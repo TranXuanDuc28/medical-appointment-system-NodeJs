@@ -31,13 +31,15 @@ const storage = multer.diskStorage({
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    // Tiền tố u<id>-: ghi nhận người tải lên để họ luôn xem lại được file của mình (xem middleware/uploadAccess.js)
+    const owner = req.user && req.user.id ? `u${req.user.id}-` : "";
     // Loại bỏ ký tự đặc biệt khỏi tên file khi lưu
     const safeName = slugify(file.originalname, {
       lower: false,
       strict: true,
       locale: "vi",
     });
-    cb(null, uniqueSuffix + "-" + safeName);
+    cb(null, owner + uniqueSuffix + "-" + safeName);
   },
 });
 const ALLOWED_UPLOAD_TYPES = [
