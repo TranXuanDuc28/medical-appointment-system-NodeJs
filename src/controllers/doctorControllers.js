@@ -105,9 +105,15 @@ let getProfileDoctorById = async (req, res) => {
 };
 let getListPatientForDoctor = async (req, res) => {
   try {
+    // Phạm vi dữ liệu quyết định bởi PERMISSION của người gọi, không tin tham số client:
+    //  - muốn xem danh sách thanh toán (nhánh R4) phải có payment:read
+    //  - nếu không có quyền xem mọi bác sĩ (doctor-data:manage:any) thì luôn bị ép doctorId = chính mình
+    const perms = req.user.permissions;
+    const cashierView = req.query.roleId === "R4" && perms.has("payment:read");
+    const doctorId = perms.has("doctor-data:manage:any") ? req.query.doctorId : req.user.id;
     let message = await doctorServices.getListPatientForDoctor(
-      req.query.doctorId,
-      req.query.roleId,
+      doctorId,
+      cashierView ? "R4" : "R2",
       req.query.date,
       req.query.lang
     );
@@ -206,7 +212,8 @@ let handlePayOSWebhook = async (req, res) => {
       req.body,
       req.app.get("socketio")
     );
-    return res.status(200).json(message);
+    // Chữ ký sai -> 401 (không phải 200) để không bị coi là đã xử lý
+    return res.status(message && message.errCode === 6 ? 401 : 200).json(message);
   } catch (error) {
     return res.status(200).json({
       errCode: -1,

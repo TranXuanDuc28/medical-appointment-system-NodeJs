@@ -1,68 +1,36 @@
 "use strict";
-const { Model } = require("sequelize");
 module.exports = (sequelize, DataTypes) => {
-  class User extends Model {
-    /**
-     * Helper method for defining associations.
-     * This method is not a part of Sequelize lifecycle.
-     * The `models/index` file will call this method automatically.
-     */
-    static associate(models) {
-      User.belongsTo(models.AllCode, {
-        foreignKey: "positionId",
-        targetKey: "keyMap",
-        as: "positionData",
-      });
-      User.belongsTo(models.AllCode, {
-        foreignKey: "gender",
-        targetKey: "keyMap",
-        as: "genderData",
-      });
-      User.belongsTo(models.AllCode, {
-        foreignKey: "roleId",
-        targetKey: "keyMap",
-        as: "roleData",
-      });
-      User.hasOne(models.Markdown, { foreignKey: "doctorId" });
-      User.hasOne(models.Doctor_Infor, { foreignKey: "doctorId" });
-
-      User.hasMany(models.Schedule, {
-        foreignKey: "doctorId",
-        as: "doctorData",
-      });
-      User.hasMany(models.Booking, {
-        foreignKey: "patientId",
-        as: "patientData",
-      });
-      User.hasMany(models.History, {
-        foreignKey: "doctorId",
-      });
-      User.hasMany(models.History, {
-        foreignKey: "patientId",
-        as: "patientHistory",
-      });
-      User.belongsTo(models.Group, { foreignKey: "groupId" });
-    }
-  }
-  User.init(
+  const User = sequelize.define(
+    "User",
     {
       email: DataTypes.STRING,
+      password: DataTypes.STRING,
       firstName: DataTypes.STRING,
       lastName: DataTypes.STRING,
-      password: DataTypes.STRING,
-      address: DataTypes.STRING,
       phoneNumber: DataTypes.STRING,
-      gender: DataTypes.STRING,
-      image: DataTypes.STRING,
-      roleId: DataTypes.STRING,
-      positionId: DataTypes.STRING,
-      groupId: DataTypes.INTEGER,
-      fcmToken: DataTypes.TEXT,
+      address: DataTypes.STRING,
+      gender: { type: DataTypes.STRING(32), field: "gender_code" },
+      positionId: { type: DataTypes.STRING(32), field: "position_code" },
+      roleId: { type: DataTypes.STRING(32), field: "role_code" },
+      image: DataTypes.BLOB("long"),
+      isActive: DataTypes.BOOLEAN,
+      tokenVersion: DataTypes.INTEGER,
+      lastLoginAt: DataTypes.DATE,
     },
-    {
-      sequelize,
-      modelName: "User",
-    }
+    { tableName: "users", paranoid: true } // xoá mềm (deleted_at)
   );
+
+  User.associate = (models) => {
+    const ref = { targetKey: "keyMap", constraints: false };
+    User.belongsTo(models.AllCode, { foreignKey: "positionId", as: "positionData", ...ref });
+    User.belongsTo(models.AllCode, { foreignKey: "gender", as: "genderData", ...ref });
+    User.belongsTo(models.AllCode, { foreignKey: "roleId", as: "roleData", ...ref });
+    User.hasOne(models.DoctorProfile, { foreignKey: "doctorId", as: "doctorProfile" });
+    User.hasMany(models.DeviceToken, { foreignKey: "userId", as: "deviceTokens" });
+    User.hasMany(models.PatientProfile, { foreignKey: "ownerUserId", as: "profiles" });
+    User.hasMany(models.Schedule, { foreignKey: "doctorId", as: "schedules" });
+    User.hasMany(models.Booking, { foreignKey: "patientId", as: "bookingsAsPatient" });
+    User.hasMany(models.Booking, { foreignKey: "doctorId", as: "bookingsAsDoctor" });
+  };
   return User;
 };

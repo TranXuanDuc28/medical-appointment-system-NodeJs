@@ -1,39 +1,26 @@
 "use strict";
-const { Model } = require("sequelize");
+/**
+ * Lịch làm việc. workDate là DATE chuẩn ("YYYY-MM-DD"); API cũ dùng chuỗi ms -> chuyển bằng utils/dateKey.
+ * Thuộc tính giữ tên cũ: timeType, maxNumber, currentNumber.
+ */
 module.exports = (sequelize, DataTypes) => {
-  class Schedule extends Model {
-    /**
-     * Helper method for defining associations.
-     * This method is not a part of Sequelize lifecycle.
-     * The `models/index` file will call this method automatically.
-     */
-    static associate(models) {
-      // define association here
-      Schedule.belongsTo(models.AllCode, {
-        foreignKey: "timeType",
-        targetKey: "keyMap",
-        as: "timeTypeData",
-      });
-      Schedule.belongsTo(models.User, {
-        foreignKey: "doctorId",
-        targetKey: "id",
-        as: "doctorData",
-      });
-    }
-  }
-  Schedule.init(
+  const Schedule = sequelize.define(
+    "Schedule",
     {
-      currentNumber: DataTypes.INTEGER,
-      maxNumber: DataTypes.INTEGER,
-      date: DataTypes.STRING,
-      timeType: DataTypes.STRING,
-      doctorId: DataTypes.INTEGER,
-      status: DataTypes.STRING,
+      doctorId: DataTypes.BIGINT.UNSIGNED,
+      workDate: { type: DataTypes.DATEONLY, field: "work_date" },
+      timeType: { type: DataTypes.STRING(32), field: "time_code" },
+      maxNumber: { type: DataTypes.INTEGER, field: "max_patients" },
+      currentNumber: { type: DataTypes.INTEGER, field: "current_patients" },
+      status: DataTypes.ENUM("available", "booked", "closed"),
+      roomId: DataTypes.BIGINT.UNSIGNED,
     },
-    {
-      sequelize,
-      modelName: "Schedule",
-    }
+    { tableName: "schedules" }
   );
+  Schedule.associate = (models) => {
+    Schedule.belongsTo(models.AllCode, { foreignKey: "timeType", targetKey: "keyMap", as: "timeTypeData", constraints: false });
+    Schedule.belongsTo(models.User, { foreignKey: "doctorId", targetKey: "id", as: "doctorData" });
+    Schedule.belongsTo(models.Room, { foreignKey: "roomId", as: "room" });
+  };
   return Schedule;
 };

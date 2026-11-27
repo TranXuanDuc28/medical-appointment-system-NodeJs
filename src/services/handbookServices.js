@@ -1,4 +1,7 @@
 const db = require("../models");
+const { imageOut, pickTranslation, toJsonText, upsertTranslation, defined } = require("../utils/legacyContent");
+const { markdownOf } = require("../utils/legacyShapes");
+
 let checkRequiredFields = (inputData) => {
   let arrFields = [
     "action",
@@ -12,384 +15,178 @@ let checkRequiredFields = (inputData) => {
     "contentHTML",
     "contentMarkdown",
   ];
-  let isValid = true;
-  let element = "";
-
   for (let i = 0; i < arrFields.length; i++) {
     let field = arrFields[i];
     let value = inputData[field];
-
-    // check riêng cho reviewers (mảng)
     if (field === "reviewers" || field === "authors") {
-      if (!Array.isArray(value) || value.length === 0) {
-        isValid = false;
-        element = field;
-        break;
-      }
-    } else {
-      if (!value || value.toString().trim() === "") {
-        isValid = false;
-        element = field;
-        break;
-      }
+      if (!Array.isArray(value) || value.length === 0) return { isValid: false, element: field };
+    } else if (!value || value.toString().trim() === "") {
+      return { isValid: false, element: field };
     }
   }
-
-  return { isValid, element };
+  return { isValid: true, element: "" };
 };
 
-let createHandBook = (inputData) => {
-  return new Promise(async (resolve, reject) => {
-    try {
-      let checkObj = checkRequiredFields(inputData);
+const today = () => new Date().toISOString().split("T")[0];
 
-      if (!checkObj.isValid) {
-        return resolve({
-          errCode: 1,
-          errMessage: `Missing parameter: ${checkObj.element}`,
-        });
-      }
-
-      // CREATE
-      if (inputData.action === "CREATE") {
-        // Tạo mới handbook
-        let handbookData = await db.HandBook.create({
+let createHandBook = async (inputData) => {
+  let checkObj = checkRequiredFields(inputData);
+  if (!checkObj.isValid) {
+    return { errCode: 1, errMessage: `Missing parameter: ${checkObj.element}` };
+  }
+  if (inputData.action !== "CREATE" && inputData.action !== "UPDATE") {
+    return { errCode: 3, errMessage: "Hành động không hợp lệ" };
+  }
+  if (!inputData.lang) {
+    return { errCode: 1, errMessage: "Missing parameter: lang" };
+  }
+  const t = await db.sequelize.transaction();
+  try {
+    const content = defined({
+      title: inputData.title,
+      contentHtml: inputData.contentHTML,
+      contentMarkdown: inputData.contentMarkdown,
+      description: inputData.description,
+    });
+    if (inputData.action === "CREATE") {
+      const handbook = await db.HandBook.create(
+        {
           image: inputData.imageBase64,
-          authors: Array.isArray(inputData.authors)
-            ? JSON.stringify(inputData.authors)
-            : inputData.authors || "",
-          reviewers: Array.isArray(inputData.reviewers)
-            ? JSON.stringify(inputData.reviewers)
-            : inputData.reviewers || "",
-          published:
-            inputData.published || new Date().toISOString().split("T")[0],
-          updated: inputData.updated || new Date().toISOString().split("T")[0],
+          authors: toJsonText(inputData.authors),
+          reviewers: toJsonText(inputData.reviewers),
+          published: inputData.published || today(),
+          updated: inputData.updated || today(),
           views: inputData.views || 0,
           category: inputData.category || "Cẩm nang",
-        });
-        await db.HandBook_Translation.create({
-          handbookId: handbookData.id,
-          title: inputData.title,
-          lang: inputData.lang,
-        });
-
-        // Tạo mới markdown liên quan
-        await db.Markdown.create({
-          handbookId: handbookData.id,
-          contentHTML: inputData.contentHTML,
-          contentMarkdown: inputData.contentMarkdown,
-          lang: inputData.lang,
-        });
-
-        return resolve({
-          errCode: 0,
-          errMessage: "Tạo cẩm nang thành công",
-        });
-      }
-      // UPDATE
-      if (inputData.action === "UPDATE") {
-        // Cập nhật thông tin hanbook
-
-        let handbook = await db.HandBook.findOne({
-          where: { id: inputData.handbookId },
-          raw: false,
-        });
-
-        if (!handbook) {
-          return resolve({
-            errCode: 2,
-            errMessage: "Không tìm thấy cẩm nang để cập nhật",
-          });
-        }
-        handbook.authors = Array.isArray(inputData.authors)
-          ? JSON.stringify(inputData.authors)
-          : inputData.authors || "";
-        handbook.image = inputData.imageBase64;
-        handbook.reviewers = Array.isArray(inputData.reviewers)
-          ? JSON.stringify(inputData.reviewers)
-          : inputData.reviewers || "";
-
-        handbook.published = inputData.published;
-        handbook.updated = inputData.updated;
-        handbook.category = inputData.category;
-        await handbook.save();
-
-        // Cập nhật thông tin handbook_translations
-        let handbook_translations = await db.HandBook_Translation.findOne({
-          where: { handbookId: inputData.handbookId, lang: inputData.lang },
-          raw: false,
-        });
-
-        if (handbook_translations) {
-          console.log("handbook_translations", handbook_translations);
-          handbook_translations.handbookId = inputData.handbookId;
-          handbook_translations.title = inputData.title;
-          handbook_translations.lang = inputData.lang;
-
-          await handbook_translations.save();
-        } else {
-          console.log("handbook_translations chua co");
-          // Nếu chưa có HandBook_Translation thì tạo mới
-          await db.HandBook_Translation.create({
-            handbookId: handbook.id,
-            title: inputData.title,
-            lang: inputData.lang,
-          });
-        }
-
-        // Cập nhật markdown
-        let handbookMarkdown = await db.Markdown.findOne({
-          where: { handbookId: inputData.handbookId, lang: inputData.lang },
-          raw: false,
-        });
-        //console.log("handbookMarkdown", handbookMarkdown);
-        if (handbookMarkdown) {
-          handbookMarkdown.contentHTML = inputData.contentHTML;
-          handbookMarkdown.contentMarkdown = inputData.contentMarkdown;
-          handbookMarkdown.lang = inputData.lang;
-          handbookMarkdown.updatedAt = new Date();
-          await handbookMarkdown.save();
-        } else {
-          // Nếu chưa có markdown thì tạo mới
-          await db.Markdown.create({
-            handbookId: handbook.id,
-            contentHTML: inputData.contentHTML,
-            contentMarkdown: inputData.contentMarkdown,
-            lang: inputData.lang,
-          });
-        }
-
-        return resolve({
-          errCode: 0,
-          errMessage: "Cập nhật cẩm nang thành công",
-        });
-      }
-
-      return resolve({
-        errCode: 3,
-        errMessage: "Hành động không hợp lệ",
-      });
-    } catch (e) {
-      reject(e);
-    }
-  });
-};
-
-let getAllHandBook = (lang) => {
-  return new Promise(async (resolve, reject) => {
-    try {
-      let data = await db.HandBook.findAll({
-        attributes: [
-          "id",
-          "image",
-          "published",
-          "updated",
-          "views",
-          "category",
-          "authors",
-        ],
-        include: [
-          {
-            model: db.HandBook_Translation,
-            where: { lang: lang },
-            attributes: {
-              exclude: ["id"],
-            },
-            as: "handbookData",
-            required: false,
-          },
-          {
-            model: db.Markdown,
-            where: { lang: lang },
-            attributes: ["contentHTML", "contentMarkdown"],
-            as: "handbookMarkdown",
-            require: false,
-          },
-        ],
-        order: [["createdAt", "DESC"]],
-        raw: false,
-      });
-
-      if (data && data.length > 0) {
-        data.map((item) => {
-          if (item.image) {
-            item.image = Buffer.from(item.image, "base64").toString("binary");
-          }
-          return item;
-        });
-      }
-      resolve({
-        errMessage: "Lấy tất cả cẩm nang",
-        errCode: 0,
-        data,
-      });
-    } catch (e) {
-      reject(e);
-    }
-  });
-};
-
-let getDetailHandBookById = (id, lang) => {
-  return new Promise(async (resolve, reject) => {
-    try {
-      if (!id || !lang) {
-        resolve({
-          errCode: 1,
-          errMessage: "Missing parameter",
-        });
-      }
-
-      let handbook = await db.HandBook.findOne({
-        where: { id: id },
-        attributes: [
-          "id",
-          "image",
-          "authors",
-          "reviewers",
-          "published",
-          "updated",
-          "views",
-          "category",
-          "createdAt",
-          "updatedAt",
-        ],
-        include: [
-          {
-            model: db.HandBook_Translation,
-            where: {
-              handbookId: id,
-              lang: lang,
-            },
-            attributes: {
-              exclude: ["id"], // bỏ cột id
-            },
-            as: "handbookData",
-            required: false,
-          },
-          {
-            model: db.Markdown,
-            where: {
-              handbookId: id,
-              lang: lang,
-            },
-            attributes: ["contentHTML", "contentMarkdown"],
-            as: "handbookMarkdown",
-            required: false,
-          },
-        ],
-        raw: true,
-        nest: true,
-      });
-
-      if (handbook) {
-        // Convert image from base64
-        if (handbook.image) {
-          handbook.image = Buffer.from(handbook.image, "base64").toString(
-            "binary"
-          );
-        }
-        // Parse authors and reviewers as arrays if they're stored as JSON strings
-        try {
-          if (handbook.authors) {
-            handbook.authors = JSON.parse(handbook.authors);
-          } else {
-            handbook.authors = ["BookingCare Team"];
-          }
-        } catch (e) {
-          handbook.authors = handbook.authors
-            ? [handbook.authors]
-            : ["BookingCare Team"];
-        }
-
-        try {
-          if (handbook.reviewers) {
-            handbook.reviewers = JSON.parse(handbook.reviewers);
-          } else {
-            handbook.reviewers = [];
-          }
-        } catch (e) {
-          handbook.reviewers = handbook.reviewers ? [handbook.reviewers] : [];
-        }
-
-        // Increment view count
-        await db.HandBook.increment("views", { where: { id: id } });
-
-        resolve({
-          errCode: 0,
-          errMessage: "ok",
-          data: handbook,
-        });
-      } else {
-        resolve({
-          errCode: 2,
-          errMessage: "Handbook not found",
-        });
-      }
-    } catch (e) {
-      reject(e);
-    }
-  });
-};
-
-let getRelatedHandBooks = (currentId, limit = 4, lang) => {
-  return new Promise(async (resolve, reject) => {
-    try {
-      let data = await db.HandBook.findAll({
-        where: {
-          id: { [db.Sequelize.Op.ne]: currentId },
         },
-        attributes: [
-          "id",
-          "image",
-          "published",
-          "updated",
-          "views",
-          "category",
-          "authors",
-        ],
-        include: [
-          {
-            model: db.HandBook_Translation,
-            where: {
-              handbookId: currentId,
-              lang: lang,
-            },
-            attributes: {
-              exclude: ["id"], // bỏ cột id
-            },
-            as: "handbookData",
-            required: false,
-          },
-        ],
-        order: [
-          ["views", "DESC"],
-          ["createdAt", "DESC"],
-        ],
-        limit: limit,
-        raw: true,
-        nest: true,
-      });
-
-      if (data && data.length > 0) {
-        data.map((item) => {
-          if (item.image) {
-            item.image = Buffer.from(item.image, "base64").toString("binary");
-          }
-          return item;
-        });
-      }
-
-      //console.log("Related handbooks:", data);
-
-      resolve({
-        errMessage: "ok",
-        errCode: 0,
-        data,
-      });
-    } catch (e) {
-      reject(e);
+        { transaction: t }
+      );
+      await upsertTranslation(db.HandBook_Translation, "handbookId", handbook.id, inputData.lang, content, t);
+      await t.commit();
+      return { errCode: 0, errMessage: "Tạo cẩm nang thành công" };
     }
+    // UPDATE
+    const handbook = await db.HandBook.findOne({ where: { id: inputData.handbookId }, raw: false, transaction: t });
+    if (!handbook) {
+      await t.rollback();
+      return { errCode: 2, errMessage: "Không tìm thấy cẩm nang để cập nhật" };
+    }
+    handbook.authors = toJsonText(inputData.authors);
+    handbook.reviewers = toJsonText(inputData.reviewers);
+    handbook.image = inputData.imageBase64;
+    handbook.published = inputData.published;
+    handbook.updated = inputData.updated;
+    handbook.category = inputData.category;
+    await handbook.save({ transaction: t });
+    await upsertTranslation(db.HandBook_Translation, "handbookId", handbook.id, inputData.lang, content, t);
+    await t.commit();
+    return { errCode: 0, errMessage: "Cập nhật cẩm nang thành công" };
+  } catch (e) {
+    await t.rollback().catch(() => {});
+    throw e;
+  }
+};
+
+const TR_ATTRS = ["handbookId", "lang", "title", "description", "contentMarkdown", "contentHtml", "createdAt", "updatedAt"];
+const handbookDataOf = (t) => pickTranslation(t, "handbookId", "handbookId", ["title"]);
+const hbMarkdownOf = (t) => {
+  const md = markdownOf(t);
+  return { contentHTML: md.contentHTML, contentMarkdown: md.contentMarkdown };
+};
+const hasContent = (t) => t && (t.contentHtml != null || t.contentMarkdown != null);
+
+const translationsByHandbook = async (lang, ids) => {
+  const where = { lang };
+  if (ids) where.handbookId = ids;
+  const rows = await db.HandBook_Translation.findAll({ where, attributes: TR_ATTRS });
+  return new Map(rows.map((t) => [String(t.handbookId), t]));
+};
+
+const parseJsonList = (raw, fallback) => {
+  try {
+    if (raw) return JSON.parse(raw);
+    return fallback;
+  } catch (e) {
+    return raw ? [raw] : fallback;
+  }
+};
+
+let getAllHandBook = async (lang) => {
+  const books = await db.HandBook.findAll({
+    attributes: ["id", "image", "published", "updated", "views", "category", "authors", "createdAt"],
+    order: [["createdAt", "DESC"], ["id", "DESC"]],
   });
+  const trMap = await translationsByHandbook(lang);
+  const data = [];
+  for (const b of books) {
+    const t = trMap.get(String(b.id));
+    // Cũ: JOIN bắt buộc với Markdown theo lang => chỉ trả cẩm nang đã có nội dung ở ngôn ngữ đó.
+    if (!hasContent(t)) continue;
+    data.push({
+      id: b.id,
+      image: imageOut(b.image),
+      published: b.published,
+      updated: b.updated,
+      views: b.views,
+      category: b.category,
+      authors: b.authors,
+      handbookData: [handbookDataOf(t)],
+      handbookMarkdown: [hbMarkdownOf(t)],
+    });
+  }
+  return { errMessage: "Lấy tất cả cẩm nang", errCode: 0, data };
+};
+
+let getDetailHandBookById = async (id, lang) => {
+  if (!id || !lang) {
+    return { errCode: 1, errMessage: "Missing parameter" };
+  }
+  const handbook = await db.HandBook.findOne({
+    where: { id },
+    attributes: ["id", "image", "authors", "reviewers", "published", "updated", "views", "category", "createdAt", "updatedAt"],
+  });
+  if (!handbook) {
+    return { errCode: 2, errMessage: "Handbook not found" };
+  }
+  const t = await db.HandBook_Translation.findOne({ where: { handbookId: handbook.id, lang }, attributes: TR_ATTRS });
+  const data = {
+    id: handbook.id,
+    image: imageOut(handbook.image),
+    authors: parseJsonList(handbook.authors, ["BookingCare Team"]),
+    reviewers: parseJsonList(handbook.reviewers, []),
+    published: handbook.published,
+    updated: handbook.updated,
+    views: handbook.views,
+    category: handbook.category,
+    createdAt: handbook.createdAt,
+    updatedAt: handbook.updatedAt,
+    handbookData: handbookDataOf(t),
+    handbookMarkdown: hbMarkdownOf(t),
+  };
+  // Tăng lượt xem (response trả số lượt TRƯỚC khi tăng, như bản cũ)
+  await db.HandBook.increment("views", { where: { id: handbook.id } });
+  return { errCode: 0, errMessage: "ok", data };
+};
+
+let getRelatedHandBooks = async (currentId, limit = 4, lang) => {
+  const books = await db.HandBook.findAll({
+    where: { id: { [db.Sequelize.Op.ne]: currentId } },
+    attributes: ["id", "image", "published", "updated", "views", "category", "authors"],
+    order: [["views", "DESC"], ["createdAt", "DESC"], ["id", "DESC"]],
+    limit: Number.isFinite(limit) && limit > 0 ? limit : 4,
+  });
+  const trMap = await translationsByHandbook(lang, books.map((b) => b.id));
+  const data = books.map((b) => ({
+    id: b.id,
+    image: imageOut(b.image),
+    published: b.published,
+    updated: b.updated,
+    views: b.views,
+    category: b.category,
+    authors: b.authors,
+    handbookData: handbookDataOf(trMap.get(String(b.id))),
+  }));
+  return { errMessage: "ok", errCode: 0, data };
 };
 
 module.exports = {

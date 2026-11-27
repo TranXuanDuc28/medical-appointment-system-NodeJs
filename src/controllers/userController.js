@@ -1,5 +1,35 @@
 import userServices from "../services/userServices";
-import JWTaction from "../middleware/JWTaction";
+import tokenService from "../services/tokenService";
+import auditService from "../services/auditService";
+
+const numEnv = (name, fallback) =>
+  process.env[name] && !isNaN(+process.env[name]) ? +process.env[name] : fallback;
+
+const cookieOptions = (maxAge) => ({
+  httpOnly: true,
+  maxAge,
+  sameSite: process.env.COOKIE_SAMESITE || "lax",
+  secure: process.env.NODE_ENV === "production",
+});
+
+const setAuthCookies = (res, accessToken, refreshToken) => {
+  res.cookie("jwt", accessToken, cookieOptions(numEnv("COOKIE_EXPIRES_IN", 86400000)));
+  res.cookie(
+    "refreshToken",
+    refreshToken,
+    cookieOptions(numEnv("COOKIE_REFRESH_EXPIRES_IN", 86400000 * 7))
+  );
+};
+
+// Cấp access (ngắn hạn) + refresh token (lưu DB, xoay vòng), set cookie httpOnly,
+// và loại các trường nội bộ khỏi dữ liệu trả về client.
+const issueTokens = async (req, res, userData) => {
+  const { accessToken, refreshToken } = await tokenService.issueTokenPair(userData.users, req);
+  setAuthCookies(res, accessToken, refreshToken);
+  userData.token = accessToken;
+  userData.refreshToken = refreshToken;
+  delete userData.users.tokenVersion;
+};
 
 let handleRegister = async (req, res) => {
 // ... existing code
@@ -37,31 +67,18 @@ let handleLogin = async (req, res) => {
     });
   }
   let userData = await userServices.handleUserLogin(email, password);
-  
+
   if (userData && userData.errCode === 0) {
-    let payload = {
-      email: userData.users.email,
-      roles: userData.users.Group && userData.users.Group.Roles ? userData.users.Group.Roles : [],
-    };
-    let token = JWTaction.createJWT(payload);
-    let refreshToken = JWTaction.createRefreshToken(payload);
-
-    const cookieMaxAge = process.env.COOKIE_EXPIRES_IN && !isNaN(+process.env.COOKIE_EXPIRES_IN)
-      ? +process.env.COOKIE_EXPIRES_IN
-      : 86400000;
-    const cookieRefreshMaxAge = process.env.COOKIE_REFRESH_EXPIRES_IN && !isNaN(+process.env.COOKIE_REFRESH_EXPIRES_IN)
-      ? +process.env.COOKIE_REFRESH_EXPIRES_IN
-      : 86400000 * 7;
-
-    if (token) {
-      res.cookie("jwt", token, { httpOnly: true, maxAge: cookieMaxAge });
-    }
-    if (refreshToken) {
-      res.cookie("refreshToken", refreshToken, { httpOnly: true, maxAge: cookieRefreshMaxAge });
-    }
-    
-    userData.token = token;
-    userData.refreshToken = refreshToken;
+    await issueTokens(req, res, userData);
+    auditService.log({ req, actor: userData.users, action: "LOGIN", resource: "auth" });
+  } else {
+    auditService.log({
+      req,
+      action: "LOGIN_FAILED",
+      resource: "auth",
+      result: "FAILED",
+      meta: { email: String(email).slice(0, 100), errCode: userData && userData.errCode },
+    });
   }
 
   return res.status(200).json({
@@ -72,9 +89,13 @@ let handleLogin = async (req, res) => {
   });
 };
 
-let handleLogout = (req, res) => {
-  res.clearCookie("jwt");
-  res.clearCookie("refreshToken");
+let handleLogout = async (req, res) => {
+  // Thu hồi refresh token hiện tại để phiên không thể dùng lại sau khi đăng xuất
+  await tokenService.revokeRefreshToken(req.cookies && req.cookies.refreshToken);
+  const opts = cookieOptions(0);
+  delete opts.maxAge;
+  res.clearCookie("jwt", opts);
+  res.clearCookie("refreshToken", opts);
   return res.status(200).json({
     errCode: 0,
     message: "Clear cookie success!"
@@ -91,18 +112,7 @@ let handlePatientChatLogin = async (req, res) => {
   }
   let userData = await userServices.handlePatientChatLogin(email, password);
   if (userData && userData.errCode === 0) {
-    let payload = {
-      email: userData.users.email,
-      roles: userData.users.Group && userData.users.Group.Roles ? userData.users.Group.Roles : [],
-    };
-    let token = JWTaction.createJWT(payload);
-    let refreshToken = JWTaction.createRefreshToken(payload);
-
-    res.cookie("jwt", token, { httpOnly: true, maxAge: +process.env.COOKIE_EXPIRES_IN });
-    res.cookie("refreshToken", refreshToken, { httpOnly: true, maxAge: +process.env.COOKIE_REFRESH_EXPIRES_IN });
-    
-    userData.token = token;
-    userData.refreshToken = refreshToken;
+    await issueTokens(req, res, userData);
   }
   return res.status(200).json({
     errCode: userData.errCode,
@@ -113,43 +123,27 @@ let handlePatientChatLogin = async (req, res) => {
 };
 let handleRefreshToken = async (req, res) => {
   try {
-    const refreshToken = req.cookies.refreshToken;
+    const refreshToken = req.cookies && req.cookies.refreshToken;
     if (!refreshToken) {
       return res.status(401).json({
         errCode: -1,
         errMessage: "Không tìm thấy Refresh Token!",
       });
     }
-
-    const decoded = JWTaction.verifyRefreshToken(refreshToken);
-    if (!decoded) {
-      return res.status(401).json({
-        errCode: -1,
-        errMessage: "Refresh Token hết hạn hoặc không hợp lệ!",
-      });
+    const result = await tokenService.rotateRefreshToken(refreshToken, req);
+    if (!result.ok) {
+      const opts = cookieOptions(0);
+      delete opts.maxAge;
+      res.clearCookie("jwt", opts);
+      res.clearCookie("refreshToken", opts);
+      return res.status(result.status).json({ errCode: -1, errMessage: result.message });
     }
-
-    const userData = await userServices.getUserByEmail(decoded.email);
-    if (userData && userData.errCode === 0) {
-      const payload = {
-        email: userData.users.email,
-        roles: userData.users.Group && userData.users.Group.Roles ? userData.users.Group.Roles : [],
-      };
-      
-      const newAccessToken = JWTaction.createJWT(payload);
-      res.cookie("jwt", newAccessToken, { httpOnly: true, maxAge: +process.env.COOKIE_EXPIRES_IN });
-
-      return res.status(200).json({
-        errCode: 0,
-        errMessage: "Làm mới Access Token thành công!",
-        token: newAccessToken,
-      });
-    } else {
-      return res.status(401).json({
-        errCode: -1,
-        errMessage: "Không tìm thấy người dùng của Token này!",
-      });
-    }
+    setAuthCookies(res, result.accessToken, result.refreshToken);
+    return res.status(200).json({
+      errCode: 0,
+      errMessage: "Làm mới Access Token thành công!",
+      token: result.accessToken,
+    });
   } catch (error) {
     console.error("Lỗi khi refresh token:", error);
     return res.status(500).json({

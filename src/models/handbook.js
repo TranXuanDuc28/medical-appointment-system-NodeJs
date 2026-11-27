@@ -1,47 +1,20 @@
 "use strict";
-const { Model } = require("sequelize");
 module.exports = (sequelize, DataTypes) => {
-  class HandBook extends Model {
-    /**
-     * Helper method for defining associations.
-     * This method is not a part of Sequelize lifecycle.
-     * The `models/index` file will call this method automatically.
-     * */
-    static associate(models) {
-      // Handbook.hasMany(models.User, {
-      //     foreignKey: "handbookId",
-      //     as: "userHandbook",
-      // });
-      HandBook.hasMany(models.Markdown, {
-        foreignKey: "handbookId",
-        as: "handbookMarkdown",
-      });
-      HandBook.hasMany(models.HandBook_Translation, {
-        foreignKey: "handbookId",
-        as: "handbookData",
-      });
-    }
-  }
-  HandBook.init(
+  const HandBook = sequelize.define(
+    "HandBook",
     {
-      image: DataTypes.STRING,
-      authors: DataTypes.TEXT, // JSON string or plain text
-      reviewers: DataTypes.TEXT, // JSON string or plain text
-      published: DataTypes.DATEONLY,
-      updated: DataTypes.DATEONLY,
-      views: {
-        type: DataTypes.INTEGER,
-        defaultValue: 0,
-      },
-      category: {
-        type: DataTypes.STRING,
-        defaultValue: "Cẩm nang",
-      },
+      image: DataTypes.BLOB("long"),
+      category: { type: DataTypes.STRING(100), defaultValue: "Cẩm nang" },
+      authors: DataTypes.TEXT, // chuỗi JSON (DB có CHECK JSON_VALID)
+      reviewers: DataTypes.TEXT,
+      published: { type: DataTypes.DATEONLY, field: "published_on" },
+      updated: { type: DataTypes.DATEONLY, field: "last_reviewed_on" },
+      views: { type: DataTypes.INTEGER, defaultValue: 0 },
     },
-    {
-      sequelize,
-      modelName: "HandBook",
-    }
+    { tableName: "handbooks" }
   );
+  HandBook.associate = (models) => {
+    HandBook.hasMany(models.HandBook_Translation, { foreignKey: "handbookId", as: "handbookData" });
+  };
   return HandBook;
 };

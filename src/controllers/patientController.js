@@ -62,7 +62,21 @@ let getPatientHistory = async (req, res) => {
     });
   }
 };
+let postCancelAppointment = async (req, res) => {
+  try {
+    const message = await patientServices.cancelAppointment(
+      req.body && req.body.bookingId,
+      req.user
+    );
+    const status = message.errCode === 403 ? 403 : 200;
+    return res.status(status).json(message);
+  } catch (error) {
+    console.error("Error cancelling appointment:", error);
+    return res.status(500).json({ errCode: -1, errMessage: "Lỗi từ server!" });
+  }
+};
 module.exports = {
+  postCancelAppointment: postCancelAppointment,
   postBookAppointment: postBookAppointment,
   postVerifyBookAppointment: postVerifyBookAppointment,
   getPatientAppointments: getPatientAppointments,

@@ -5,7 +5,7 @@ let emailQueue = null;
 let emailWorker = null;
 let queueConnectionOptions = null;
 
-// Helper to prepare PDF, generate PayOS link, and save history in background
+// Helper to prepare PDF, generate PayOS link, and save medical record in background
 const prepareRemedyDataAndSaveHistory = async (data) => {
   const doctorServices = require("../services/doctorServices");
   const db = require("../models/index");
@@ -34,8 +34,8 @@ const prepareRemedyDataAndSaveHistory = async (data) => {
     console.error("[Queue] Error creating PayOS link:", payosErr);
   }
 
-  // 3. Save to History database
-  console.log(`[Queue] Saving medical history for booking ${data.bookingId}...`);
+  // 3. Lưu hồ sơ khám (MedicalRecord, thay History): 1 hồ sơ / booking (UNIQUE booking_id) => upsert, retry job không tạo trùng
+  console.log(`[Queue] Saving medical record for booking ${data.bookingId}...`);
   try {
     const medicalDescription = JSON.stringify({
       diagnosis: data.examInfo.diagnosis,
@@ -45,14 +45,32 @@ const prepareRemedyDataAndSaveHistory = async (data) => {
       advice: data.examInfo.advice,
       prescription: data.prescription,
     });
-    await db.History.create({
+    const booking = data.bookingId
+      ? await db.Booking.findOne({
+          where: { id: data.bookingId },
+          attributes: ["id", "patientProfileId"],
+          raw: true,
+        })
+      : null;
+    const values = {
       description: medicalDescription,
       doctorId: data.doctorId,
       patientId: data.patientId,
-      files: pdfBase64,
-    });
+      patientProfileId: booking ? booking.patientProfileId : null,
+      document: pdfBase64,
+    };
+    const existing = data.bookingId
+      ? await db.MedicalRecord.findOne({ where: { bookingId: data.bookingId }, raw: false })
+      : null;
+    if (existing) {
+      // Không ghi đè PDF đã có bằng chuỗi rỗng khi lần này tạo PDF lỗi
+      if (!pdfBase64) delete values.document;
+      await existing.update(values);
+    } else {
+      await db.MedicalRecord.create({ bookingId: data.bookingId || null, ...values });
+    }
   } catch (dbErr) {
-    console.error("[Queue] Error saving medical history to database:", dbErr);
+    console.error("[Queue] Error saving medical record to database:", dbErr);
   }
 };
 

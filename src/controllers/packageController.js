@@ -1,6 +1,7 @@
-import { raw } from 'body-parser';
 import db from '../models/index';
 import { Op } from 'sequelize';
+import { specialtyInclude, specialtyShape, sendError, jsonText, withNumericRating } from '../utils/legacyMisc';
+import { msToDate } from '../utils/dateKey';
 
 let getAllPackages = async (req, res) => {
     try {
@@ -13,47 +14,16 @@ let getAllPackages = async (req, res) => {
                     as: 'facilityData',
                     attributes: ['name', 'description', 'logo']
                 },
-                {
-                    model: db.Specialty,
-                    as: 'specialtyData',
-                    attributes: ['id', 'image'],
-                    include: [
-                        {
-                            model: db.Specialty_Translation,
-                            as: 'specialtyData',
-                            where: { lang: lang },
-                            attributes: ['name'],
-                            required: false
-                        },
-                        {
-                            model: db.Markdown,
-                            as: 'specialtyMarkdown',
-                            where: { lang: lang },
-                            attributes: ['contentHTML', 'contentMarkdown'],
-                            required: false
-                        }
-                    ]
-                }
+                specialtyInclude(lang)
             ],
-            order: [['isFeatured', 'DESC'], ['createdAt', 'DESC']],
+            order: [['isFeatured', 'DESC'], ['createdAt', 'DESC'], ['id', 'ASC']],
             raw: false
         });
 
         let formattedPackages = packages.map(pkg => {
             let pkgJson = pkg.get({ plain: true });
-            if (pkgJson.specialtyData) {
-                const specialty = pkgJson.specialtyData;
-                const translation = specialty.specialtyData && specialty.specialtyData[0] ? specialty.specialtyData[0] : {};
-                const markdown = specialty.specialtyMarkdown && specialty.specialtyMarkdown[0] ? specialty.specialtyMarkdown[0] : {};
-                
-                pkgJson.specialtyData = {
-                    id: specialty.id,
-                    image: specialty.image,
-                    name: translation.name || '',
-                    descriptionHTML: markdown.contentHTML || '',
-                    descriptionMarkdown: markdown.contentMarkdown || ''
-                };
-            }
+            pkgJson.specialtyData = specialtyShape(pkgJson.specialtyData);
+            withNumericRating(pkgJson.facilityData);
             return pkgJson;
         });
 
@@ -86,7 +56,7 @@ let getFeaturedPackages = async (req, res) => {
                     attributes: ['name', 'description', 'logo']
                 }
             ],
-            order: [['createdAt', 'DESC']],
+            order: [['createdAt', 'DESC'], ['id', 'ASC']],
             limit: 8,
             raw: false
         });
@@ -126,27 +96,7 @@ let getPackageById = async (req, res) => {
                     as: 'facilityData',
                     attributes: ['name', 'description', 'logo', 'address', 'phone', 'email', 'website']
                 },
-                {
-                    model: db.Specialty,
-                    as: 'specialtyData',
-                    attributes: ['id', 'image'],
-                    include: [
-                        {
-                            model: db.Specialty_Translation,
-                            as: 'specialtyData',
-                            where: { lang: lang },
-                            attributes: ['name'],
-                            required: false
-                        },
-                        {
-                            model: db.Markdown,
-                            as: 'specialtyMarkdown',
-                            where: { lang: lang },
-                            attributes: ['contentHTML', 'contentMarkdown'],
-                            required: false
-                        }
-                    ]
-                }
+                specialtyInclude(lang)
             ],
             raw: false
         });
@@ -159,19 +109,8 @@ let getPackageById = async (req, res) => {
         }
 
         let pkgJson = packageData.get({ plain: true });
-        if (pkgJson.specialtyData) {
-            const specialty = pkgJson.specialtyData;
-            const translation = specialty.specialtyData && specialty.specialtyData[0] ? specialty.specialtyData[0] : {};
-            const markdown = specialty.specialtyMarkdown && specialty.specialtyMarkdown[0] ? specialty.specialtyMarkdown[0] : {};
-            
-            pkgJson.specialtyData = {
-                id: specialty.id,
-                image: specialty.image,
-                name: translation.name || '',
-                descriptionHTML: markdown.contentHTML || '',
-                descriptionMarkdown: markdown.contentMarkdown || ''
-            };
-        }
+        pkgJson.specialtyData = specialtyShape(pkgJson.specialtyData);
+            withNumericRating(pkgJson.facilityData);
 
         return res.status(200).json({
             errCode: 0,
@@ -263,6 +202,7 @@ let searchPackages = async (req, res) => {
         if (sortBy !== 'isFeatured') {
             orderClause.unshift(['isFeatured', 'DESC']);
         }
+        orderClause.push(['id', 'ASC']); // ổn định thứ tự khi trùng giá trị
 
         let packages = await db.Package.findAndCountAll({
             where: whereClause,
@@ -272,27 +212,7 @@ let searchPackages = async (req, res) => {
                     as: 'facilityData',
                     attributes: ['id', 'name', 'description', 'logo', 'address', 'type', 'level', 'rating']
                 },
-                {
-                    model: db.Specialty,
-                    as: 'specialtyData',
-                    attributes: ['id', 'image'],
-                    include: [
-                        {
-                            model: db.Specialty_Translation,
-                            as: 'specialtyData',
-                            where: { lang: req.query.lang || 'vi' },
-                            attributes: ['name'],
-                            required: false
-                        },
-                        {
-                            model: db.Markdown,
-                            as: 'specialtyMarkdown',
-                            where: { lang: req.query.lang || 'vi' },
-                            attributes: ['contentHTML', 'contentMarkdown'],
-                            required: false
-                        }
-                    ]
-                }
+                specialtyInclude(req.query.lang || 'vi')
             ],
             order: orderClause,
             limit: parseInt(limit),
@@ -310,25 +230,14 @@ let searchPackages = async (req, res) => {
         // Get unique age ranges for filter options
         let ageRanges = await db.Package.findAll({
             where: { isActive: true },
-            attributes: [[db.sequelize.fn('DISTINCT', db.sequelize.col('ageRange')), 'ageRange']],
+            attributes: [[db.sequelize.fn('DISTINCT', db.sequelize.col('age_range')), 'ageRange']],
             raw: true
         });
 
         let formattedRows = packages.rows.map(pkg => {
             let pkgJson = pkg.get({ plain: true });
-            if (pkgJson.specialtyData) {
-                const specialty = pkgJson.specialtyData;
-                const translation = specialty.specialtyData && specialty.specialtyData[0] ? specialty.specialtyData[0] : {};
-                const markdown = specialty.specialtyMarkdown && specialty.specialtyMarkdown[0] ? specialty.specialtyMarkdown[0] : {};
-                
-                pkgJson.specialtyData = {
-                    id: specialty.id,
-                    image: specialty.image,
-                    name: translation.name || '',
-                    descriptionHTML: markdown.contentHTML || '',
-                    descriptionMarkdown: markdown.contentMarkdown || ''
-                };
-            }
+            pkgJson.specialtyData = specialtyShape(pkgJson.specialtyData);
+            withNumericRating(pkgJson.facilityData);
             return pkgJson;
         });
 
@@ -367,6 +276,17 @@ let createPackage = async (req, res) => {
             });
         }
 
+        if (!data.facilityId) {
+            return res.status(400).json({ errCode: 1, message: 'Missing required fields (facilityId)' });
+        }
+        if (!(Number(data.price) >= 0) || Number(data.price) >= 1e10) {
+            return res.status(400).json({ errCode: 3, message: 'Invalid price' });
+        }
+        let facility = await db.Facility.findByPk(data.facilityId, { attributes: ['id'] });
+        if (!facility) {
+            return res.status(400).json({ errCode: 3, message: 'Facility not found' });
+        }
+
         let newPackage = await db.Package.create({
             name: data.name,
             description: data.description,
@@ -380,8 +300,8 @@ let createPackage = async (req, res) => {
             isFeatured: data.isFeatured || false,
             facilityId: data.facilityId,
             specialtyId: data.specialtyId,
-            includedServices: data.includedServices ? JSON.stringify(data.includedServices) : null,
-            excludedServices: data.excludedServices ? JSON.stringify(data.excludedServices) : null,
+            includedServices: jsonText(data.includedServices),
+            excludedServices: jsonText(data.excludedServices),
             requirements: data.requirements,
             notes: data.notes
         });
@@ -392,12 +312,7 @@ let createPackage = async (req, res) => {
             data: newPackage
         });
     } catch (error) {
-        console.log(error);
-        return res.status(500).json({
-            errCode: -1,
-            message: 'Error from server',
-            error: error.message
-        });
+        return sendError(res, error);
     }
 };
 
@@ -413,12 +328,20 @@ let updatePackage = async (req, res) => {
             });
         }
 
-        let packageData = await db.Package.findByPk(id);
+        let packageData = await db.Package.findByPk(id, { raw: false });
         if (!packageData) {
             return res.status(404).json({
                 errCode: 2,
                 message: 'Package not found 2'
             });
+        }
+
+        if (data.price !== undefined && data.price !== null && data.price !== '' &&
+            (!(Number(data.price) >= 0) || Number(data.price) >= 1e10)) {
+            return res.status(400).json({ errCode: 3, message: 'Invalid price' });
+        }
+        if (data.facilityId && !(await db.Facility.findByPk(data.facilityId, { attributes: ['id'] }))) {
+            return res.status(400).json({ errCode: 3, message: 'Facility not found' });
         }
 
         // Update package
@@ -435,8 +358,8 @@ let updatePackage = async (req, res) => {
             isFeatured: data.isFeatured !== undefined ? data.isFeatured : packageData.isFeatured,
             facilityId: data.facilityId || packageData.facilityId,
             specialtyId: data.specialtyId || packageData.specialtyId,
-            includedServices: data.includedServices ? JSON.stringify(data.includedServices) : packageData.includedServices,
-            excludedServices: data.excludedServices ? JSON.stringify(data.excludedServices) : packageData.excludedServices,
+            includedServices: data.includedServices ? jsonText(data.includedServices) : packageData.includedServices,
+            excludedServices: data.excludedServices ? jsonText(data.excludedServices) : packageData.excludedServices,
             requirements: data.requirements || packageData.requirements,
             notes: data.notes || packageData.notes
         });
@@ -447,12 +370,7 @@ let updatePackage = async (req, res) => {
             data: packageData
         });
     } catch (error) {
-        console.log(error);
-        return res.status(500).json({
-            errCode: -1,
-            message: 'Error from server',
-            error: error.message
-        });
+        return sendError(res, error);
     }
 };
 
@@ -467,7 +385,7 @@ let deletePackage = async (req, res) => {
             });
         }
 
-        let packageData = await db.Package.findByPk(id);
+        let packageData = await db.Package.findByPk(id, { raw: false });
         if (!packageData) {
             return res.status(404).json({
                 errCode: 2,
@@ -483,12 +401,7 @@ let deletePackage = async (req, res) => {
             message: 'Package deleted successfully'
         });
     } catch (error) {
-        console.log(error);
-        return res.status(500).json({
-            errCode: -1,
-            message: 'Error from server',
-            error: error.message
-        });
+        return sendError(res, error);
     }
 };
 
@@ -504,7 +417,7 @@ let getFilterOptions = async (req, res) => {
         // Get unique age ranges
         let ageRanges = await db.Package.findAll({
             where: { isActive: true },
-            attributes: [[db.sequelize.fn('DISTINCT', db.sequelize.col('ageRange')), 'ageRange']],
+            attributes: [[db.sequelize.fn('DISTINCT', db.sequelize.col('age_range')), 'ageRange']],
             raw: true
         });
 
@@ -626,18 +539,21 @@ let getPackageBookingSlots = async (req, res) => {
                     attributes: ['valueVi', 'valueEn']
                 },
                 {
-                    model: db.Doctor_Infor,
-                    where: { lang: lang },
+                    model: db.DoctorProfile,
+                    as: 'doctorProfile',
                     required: false,
+                    attributes: ['doctorId', 'specialtyId'],
                     include: [
                         {
                             model: db.Specialty,
                             as: 'doctorSpecialty',
+                            attributes: ['id'],
                             include: [
                                 {
                                     model: db.Specialty_Translation,
                                     where: { lang: lang },
                                     as: 'specialtyData',
+                                    attributes: ['name'],
                                     required: false
                                 }
                             ]
@@ -650,7 +566,7 @@ let getPackageBookingSlots = async (req, res) => {
 
         let availableDoctors = rawDoctors.map(d => {
             let pos = d.positionData ? (lang === 'vi' ? d.positionData.valueVi : d.positionData.valueEn) : '';
-            let specialty = d.Doctor_Infor?.doctorSpecialty?.specialtyData?.[0]?.name || 'Nội tổng quát';
+            let specialty = d.doctorProfile?.doctorSpecialty?.specialtyData?.[0]?.name || 'Nội tổng quát';
             return {
                 id: d.id,
                 name: `${pos ? pos + ' ' : ''}${d.lastName} ${d.firstName}`.trim(),
@@ -658,6 +574,9 @@ let getPackageBookingSlots = async (req, res) => {
                 specialty: specialty
             };
         });
+
+        // Ngày API là chuỗi ms; DB lưu DATE
+        const workDate = msToDate(date);
 
         // 2. Capacity & Slot availability calculation
         const MAX_PER_DOCTOR = 3; // Maximum 3 package appointments per doctor per 1-hour slot
@@ -670,7 +589,7 @@ let getPackageBookingSlots = async (req, res) => {
                 let bookedCount = await db.Booking.count({
                     where: {
                         doctorId: targetDoc.id,
-                        date: date,
+                        workDate: workDate,
                         timeType: slotDef.key,
                         statusId: { [Op.in]: ['S1', 'S2'] }
                     }
@@ -693,7 +612,7 @@ let getPackageBookingSlots = async (req, res) => {
                     let bookedCount = await db.Booking.count({
                         where: {
                             doctorId: doc.id,
-                            date: date,
+                            workDate: workDate,
                             timeType: slotDef.key,
                             statusId: { [Op.in]: ['S1', 'S2'] }
                         }

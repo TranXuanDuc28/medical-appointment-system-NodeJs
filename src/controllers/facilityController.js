@@ -1,19 +1,19 @@
-import { raw } from 'body-parser';
 import db from '../models/index';
 import { Op } from 'sequelize';
+import { sendError, jsonText, plainFacility } from '../utils/legacyMisc';
 
 let getAllFacilities = async (req, res) => {
     try {
         let facilities = await db.Facility.findAll({
             where: { isActive: true },
-            order: [['isFeatured', 'DESC'], ['rating', 'DESC']],
+            order: [['isFeatured', 'DESC'], ['rating', 'DESC'], ['id', 'ASC']],
             raw: false
         });
 
         return res.status(200).json({
             errCode: 0,
             message: 'OK',
-            data: facilities
+            data: facilities.map(plainFacility)
         });
     } catch (error) {
         console.log(error);
@@ -32,7 +32,7 @@ let getFeaturedFacilities = async (req, res) => {
                 isActive: true,
                 isFeatured: true
             },
-            order: [['rating', 'DESC'], ['totalReviews', 'DESC']],
+            order: [['rating', 'DESC'], ['totalReviews', 'DESC'], ['id', 'ASC']],
             limit: 10,
             raw: false
         });
@@ -40,7 +40,7 @@ let getFeaturedFacilities = async (req, res) => {
         return res.status(200).json({
             errCode: 0,
             message: 'OK',
-            data: facilities
+            data: facilities.map(plainFacility)
         });
     } catch (error) {
         console.log(error);
@@ -86,7 +86,7 @@ let getFacilityById = async (req, res) => {
         return res.status(200).json({
             errCode: 0,
             message: 'OK',
-            data: facility
+            data: plainFacility(facility)
         });
     } catch (error) {
         console.log(error);
@@ -152,6 +152,7 @@ let searchFacilities = async (req, res) => {
         if (sortBy !== 'isFeatured') {
             orderClause.unshift(['isFeatured', 'DESC']);
         }
+        orderClause.push(['id', 'ASC']); // ổn định thứ tự khi trùng giá trị
 
         let facilities = await db.Facility.findAndCountAll({
             where: whereClause,
@@ -188,7 +189,7 @@ let searchFacilities = async (req, res) => {
             errCode: 0,
             message: 'OK',
             data: {
-                facilities: facilities.rows,
+                facilities: facilities.rows.map(plainFacility),
                 total: facilities.count,
                 limit: parseInt(limit),
                 offset: parseInt(offset),
@@ -219,6 +220,11 @@ let createFacility = async (req, res) => {
             });
         }
 
+        if (data.rating !== undefined && data.rating !== null && data.rating !== '' &&
+            !(Number(data.rating) >= 0 && Number(data.rating) <= 5)) {
+            return res.status(400).json({ errCode: 3, message: 'Invalid rating (must be between 0 and 5)' });
+        }
+
         let newFacility = await db.Facility.create({
             name: data.name,
             description: data.description,
@@ -233,11 +239,11 @@ let createFacility = async (req, res) => {
             isFeatured: data.isFeatured || false,
             rating: data.rating || 0,
             totalReviews: data.totalReviews || 0,
-            workingHours: data.workingHours ? JSON.stringify(data.workingHours) : null,
-            services: data.services ? JSON.stringify(data.services) : null,
-            specialties: data.specialties ? JSON.stringify(data.specialties) : null,
-            images: data.images ? JSON.stringify(data.images) : null,
-            location: data.location ? JSON.stringify(data.location) : null
+            workingHours: jsonText(data.workingHours),
+            services: jsonText(data.services),
+            specialties: jsonText(data.specialties),
+            images: jsonText(data.images),
+            location: jsonText(data.location)
         });
 
         return res.status(201).json({
@@ -246,12 +252,7 @@ let createFacility = async (req, res) => {
             data: newFacility
         });
     } catch (error) {
-        console.log(error);
-        return res.status(500).json({
-            errCode: -1,
-            message: 'Error from server',
-            error: error.message
-        });
+        return sendError(res, error);
     }
 };
 
@@ -267,12 +268,17 @@ let updateFacility = async (req, res) => {
             });
         }
 
-        let facility = await db.Facility.findByPk(id);
+        let facility = await db.Facility.findByPk(id, { raw: false });
         if (!facility) {
             return res.status(404).json({
                 errCode: 2,
                 message: 'Facility not found'
             });
+        }
+
+        if (data.rating !== undefined && data.rating !== null && data.rating !== '' &&
+            !(Number(data.rating) >= 0 && Number(data.rating) <= 5)) {
+            return res.status(400).json({ errCode: 3, message: 'Invalid rating (must be between 0 and 5)' });
         }
 
         // Update facility
@@ -290,11 +296,11 @@ let updateFacility = async (req, res) => {
             isFeatured: data.isFeatured !== undefined ? data.isFeatured : facility.isFeatured,
             rating: data.rating || facility.rating,
             totalReviews: data.totalReviews || facility.totalReviews,
-            workingHours: data.workingHours ? JSON.stringify(data.workingHours) : facility.workingHours,
-            services: data.services ? JSON.stringify(data.services) : facility.services,
-            specialties: data.specialties ? JSON.stringify(data.specialties) : facility.specialties,
-            images: data.images ? JSON.stringify(data.images) : facility.images,
-            location: data.location ? JSON.stringify(data.location) : facility.location
+            workingHours: data.workingHours ? jsonText(data.workingHours) : facility.workingHours,
+            services: data.services ? jsonText(data.services) : facility.services,
+            specialties: data.specialties ? jsonText(data.specialties) : facility.specialties,
+            images: data.images ? jsonText(data.images) : facility.images,
+            location: data.location ? jsonText(data.location) : facility.location
         });
 
         return res.status(200).json({
@@ -303,12 +309,7 @@ let updateFacility = async (req, res) => {
             data: facility
         });
     } catch (error) {
-        console.log(error);
-        return res.status(500).json({
-            errCode: -1,
-            message: 'Error from server',
-            error: error.message
-        });
+        return sendError(res, error);
     }
 };
 
@@ -323,7 +324,7 @@ let deleteFacility = async (req, res) => {
             });
         }
 
-        let facility = await db.Facility.findByPk(id);
+        let facility = await db.Facility.findByPk(id, { raw: false });
         if (!facility) {
             return res.status(404).json({
                 errCode: 2,
@@ -339,12 +340,7 @@ let deleteFacility = async (req, res) => {
             message: 'Facility deleted successfully'
         });
     } catch (error) {
-        console.log(error);
-        return res.status(500).json({
-            errCode: -1,
-            message: 'Error from server',
-            error: error.message
-        });
+        return sendError(res, error);
     }
 };
 
@@ -381,8 +377,8 @@ let getFilterOptions = async (req, res) => {
                 types: types.map(t => t.type).filter(Boolean),
                 levels: levels.map(l => l.level).filter(Boolean),
                 ratingRange: {
-                    min: ratingStats.minRating || 0,
-                    max: ratingStats.maxRating || 5
+                    min: Number(ratingStats.minRating) || 0,
+                    max: Number(ratingStats.maxRating) || 5
                 }
             }
         });

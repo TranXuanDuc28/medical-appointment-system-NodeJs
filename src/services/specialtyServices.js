@@ -1,297 +1,124 @@
 const db = require("../models");
+const { imageOut, pickTranslation, upsertTranslation, defined } = require("../utils/legacyContent");
+const { markdownOf } = require("../utils/legacyShapes");
+
 let checkRequiredFields = (inputData) => {
-  let arrFields = [
-    "action",
-    "imageBase64",
-    "contentHTML",
-    "contentMarkdown",
-    "lang",
-  ];
-  let isValid = true;
-  let element = "";
+  let arrFields = ["action", "imageBase64", "contentHTML", "contentMarkdown", "lang"];
   for (let i = 0; i < arrFields.length; i++) {
-    if (!inputData[arrFields[i]]) {
-      isValid = false;
-      element = arrFields[i];
-      break;
-    }
+    if (!inputData[arrFields[i]]) return { isValid: false, element: arrFields[i] };
   }
-  return {
-    isValid: isValid,
-    element: element,
+  return { isValid: true, element: "" };
+};
+
+let createSpecialty = async (inputData) => {
+  let checkObj = checkRequiredFields(inputData);
+  if (!checkObj.isValid) {
+    return { errCode: 1, errMessage: `Missing parameter: ${checkObj.element}` };
+  }
+  if (inputData.action !== "CREATE" && inputData.action !== "UPDATE") {
+    return { errCode: 3, errMessage: "Hành động không hợp lệ" };
+  }
+  // name là NOT NULL ở bảng bản dịch
+  if (!inputData.name) {
+    return { errCode: 1, errMessage: "Missing parameter: name" };
+  }
+  const t = await db.sequelize.transaction();
+  try {
+    const content = defined({
+      name: inputData.name,
+      contentHtml: inputData.contentHTML,
+      contentMarkdown: inputData.contentMarkdown,
+      description:
+        inputData.action === "CREATE" ? inputData.description || null : inputData.description,
+    });
+    if (inputData.action === "CREATE") {
+      const specialty = await db.Specialty.create({ image: inputData.imageBase64 }, { transaction: t });
+      await upsertTranslation(db.Specialty_Translation, "specialtyId", specialty.id, inputData.lang, content, t);
+      await t.commit();
+      return { errCode: 0, errMesssage: "Tạo chuyên khoa thành công" };
+    }
+    // UPDATE
+    const specialty = await db.Specialty.findOne({
+      where: { id: inputData.specialtyId },
+      raw: false,
+      transaction: t,
+    });
+    if (!specialty) {
+      await t.rollback();
+      return { errCode: 2, errMessage: "Không tìm thấy chuyên khoa để cập nhật" };
+    }
+    specialty.image = inputData.imageBase64;
+    await specialty.save({ transaction: t });
+    await upsertTranslation(db.Specialty_Translation, "specialtyId", specialty.id, inputData.lang, content, t);
+    await t.commit();
+    return { errCode: 0, errMessage: "Cập nhật chuyên khoa thành công" };
+  } catch (e) {
+    await t.rollback().catch(() => {});
+    throw e;
+  }
+};
+
+const TR_ATTRS = ["specialtyId", "lang", "name", "description", "contentMarkdown", "contentHtml", "createdAt", "updatedAt"];
+
+let getAllSpecialty = async (lang = "vi") => {
+  lang = lang || "vi";
+  const [specialties, translations] = await Promise.all([
+    db.Specialty.findAll({ order: [["id", "ASC"]] }),
+    db.Specialty_Translation.findAll({ where: { lang }, attributes: TR_ATTRS }),
+  ]);
+  const byId = new Map(translations.map((t) => [String(t.specialtyId), t]));
+  const data = specialties.map((s) => {
+    const t = byId.get(String(s.id));
+    const specialtyData = pickTranslation(t, "specialtyId", "specialtyId", ["name"]);
+    const md = markdownOf(t);
+    return {
+      id: s.id,
+      image: imageOut(s.image),
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt,
+      specialtyData,
+      specialtyMarkdown: t
+        ? { contentHTML: md.contentHTML, contentMarkdown: md.contentMarkdown, description: md.description }
+        : { contentHTML: null, contentMarkdown: null, description: null },
+      ...specialtyData,
+      description: md ? md.description : null,
+    };
+  });
+  return { errMessage: "Lấy tất cả chuyên khoa", errCode: 0, data };
+};
+
+let getDetailSpecialtyById = async (inputId, location, lang) => {
+  if (!inputId || !location || !lang) {
+    return { errCode: 1, errMessage: "Missing parameter" };
+  }
+  const specialty = await db.Specialty.findOne({ where: { id: inputId }, attributes: ["id", "image"] });
+  if (!specialty) {
+    return { errMessage: "Không tìm thấy chuyên khoa", errCode: 0, data: {} };
+  }
+  const t = await db.Specialty_Translation.findOne({
+    where: { specialtyId: specialty.id, lang },
+    attributes: TR_ATTRS,
+  });
+  const where = { specialtyId: specialty.id };
+  if (location !== "ALL") where.provinceId = location;
+  const profiles = await db.DoctorProfile.findAll({
+    where,
+    attributes: ["doctorId", "provinceId"],
+    order: [["doctorId", "ASC"]],
+  });
+  const md = markdownOf(t);
+  const data = {
+    id: specialty.id,
+    image: imageOut(specialty.image),
+    specialtyData: t ? [pickTranslation(t, "specialtyId", "specialtyId", ["name"])] : [],
+    doctorSpecialty: profiles.map((p) => ({ doctorId: p.doctorId, provinceId: p.provinceId })),
+    specialtyMarkdown: t
+      ? [{ contentHTML: md.contentHTML, contentMarkdown: md.contentMarkdown, description: md.description }]
+      : [],
   };
-};
-let createSpecialty = (inputData) => {
-  return new Promise(async (resolve, reject) => {
-    try {
-      let checkObj = checkRequiredFields(inputData);
-      if (!checkObj.isValid) {
-        return resolve({
-          errCode: 1,
-          errMessage: `Missing parameter: ${checkObj.element}`,
-        });
-      }
-      //CREATE
-      if (inputData.action === "CREATE") {
-        let specialtyData = await db.Specialty.create({
-          image: inputData.imageBase64,
-        });
-        await db.Specialty_Translation.create({
-          specialtyId: specialtyData.id,
-          name: inputData.name,
-          lang: inputData.lang,
-        });
-
-        // Tạo mới markdown liên quan
-        await db.Markdown.create({
-          specialtyId: specialtyData.id,
-          contentHTML: inputData.contentHTML,
-          contentMarkdown: inputData.contentMarkdown,
-          description: inputData.description || null,
-          lang: inputData.lang,
-        });
-        resolve({
-          errCode: 0,
-          errMesssage: "Tạo chuyên khoa thành công",
-        });
-      }
-      // UPDATE
-      if (inputData.action === "UPDATE") {
-        // Cập nhật thông tin specialty
-        let specialtyData = await db.Specialty.findOne({
-          where: { id: inputData.specialtyId },
-          raw: false,
-        });
-        if (!specialtyData) {
-          return resolve({
-            errCode: 2,
-            errMessage: "Không tìm thấy chuyên khoa để cập nhật",
-          });
-        }
-        specialtyData.image = inputData.imageBase64;
-        await specialtyData.save();
-        // Cập nhật thông tin specialty_translations
-        let specialty_translations = await db.Specialty_Translation.findOne({
-          where: { specialtyId: inputData.specialtyId, lang: inputData.lang },
-          raw: false,
-        });
-
-        if (specialty_translations) {
-          specialty_translations.specialtyId = inputData.specialtyId;
-          specialty_translations.name = inputData.name;
-          specialty_translations.lang = inputData.lang;
-
-          await specialty_translations.save();
-        } else {
-          // Nếu chưa có Specialty_Translation thì tạo mới
-          await db.Specialty_Translation.create({
-            specialtyId: inputData.specialtyId,
-            name: inputData.name,
-            lang: inputData.lang,
-          });
-        }
-
-        // Cập nhật markdown
-        let specialtyMarkdown = await db.Markdown.findOne({
-          where: { specialtyId: inputData.specialtyId, lang: inputData.lang },
-          raw: false,
-        });
-
-        if (specialtyMarkdown) {
-          specialtyMarkdown.contentHTML = inputData.contentHTML;
-          specialtyMarkdown.contentMarkdown = inputData.contentMarkdown;
-          if (inputData.description !== undefined) {
-            specialtyMarkdown.description = inputData.description;
-          }
-          specialtyMarkdown.lang = inputData.lang;
-          specialtyMarkdown.updatedAt = new Date();
-          await specialtyMarkdown.save();
-        } else {
-          // Nếu chưa có markdown thì tạo mới
-          await db.Markdown.create({
-            specialtyId: inputData.specialtyId,
-            contentHTML: inputData.contentHTML,
-            contentMarkdown: inputData.contentMarkdown,
-            description: inputData.description || null,
-            lang: inputData.lang,
-          });
-        }
-
-        return resolve({
-          errCode: 0,
-          errMessage: "Cập nhật chuyên khoa thành công",
-        });
-      }
-
-      return resolve({
-        errCode: 3,
-        errMessage: "Hành động không hợp lệ",
-      });
-    } catch (e) {
-      reject(e);
-    }
-  });
+  return { errMessage: "ok", errCode: 0, data };
 };
 
-let getAllSpecialty = (lang) => {
-  return new Promise(async (resolve, reject) => {
-    try {
-      let specialtyResult = await db.Specialty.findAll({
-        include: [
-          {
-            model: db.Specialty_Translation,
-            where: { lang: lang },
-            attributes: {
-              exclude: ["id"],
-            },
-            as: "specialtyData",
-            required: false,
-          },
-          {
-            model: db.Markdown,
-            where: { lang: lang },
-            attributes: ["contentHTML", "contentMarkdown", "description"],
-            as: "specialtyMarkdown",
-            required: false,
-          },
-        ],
-        raw: true,
-        nest: true,
-      });
-      // console.log("specialtyResult", specialtyResult);
-
-      if (specialtyResult && specialtyResult.length > 0) {
-        specialtyResult.map((item) => {
-          if (item.image) {
-            item.image = Buffer.from(item.image, "base64").toString("binary");
-            return item;
-          }
-        });
-      }
-      let data = specialtyResult.map((item) => {
-        return {
-          ...item,
-          ...item.specialtyData,
-          description: item.specialtyMarkdown ? item.specialtyMarkdown.description : null,
-        };
-      });
-      resolve({
-        errMessage: "Lấy tất cả chuyên khoa",
-        errCode: 0,
-        data,
-      });
-    } catch (e) {
-      reject(e);
-    }
-  });
-};
-let getDetailSpecialtyById = (inputId, location, lang) => {
-  return new Promise(async (resolve, reject) => {
-    try {
-      if (!inputId || !location || !lang) {
-        resolve({
-          errCode: 1,
-          errMessage: "Missing parameter",
-        });
-      } else {
-        let data = {};
-        if (location === "ALL") {
-          data = await db.Specialty.findOne({
-            where: {
-              id: inputId,
-            },
-
-            attributes: ["id", "image"],
-            include: [
-              {
-                model: db.Specialty_Translation,
-                where: {
-                  specialtyId: inputId,
-                  lang: lang,
-                },
-                attributes: {
-                  exclude: ["id"], // bỏ cột id
-                },
-                as: "specialtyData",
-                required: false,
-              },
-              {
-                model: db.Doctor_Infor,
-                as: "doctorSpecialty",
-                where: {
-                  lang: lang,
-                },
-                attributes: ["doctorId", "provinceId"],
-                required: false,
-              },
-              {
-                model: db.Markdown,
-                attributes: ["contentHTML", "contentMarkdown", "description"],
-                as: "specialtyMarkdown",
-                where: { specialtyId: inputId, lang: lang },
-                required: false,
-              },
-            ],
-            raw: false,
-          });
-        } else {
-          data = await db.Specialty.findOne({
-            where: {
-              id: inputId,
-            },
-
-            attributes: ["id", "image"],
-            include: [
-              {
-                model: db.Specialty_Translation,
-                where: {
-                  specialtyId: inputId,
-                  lang: lang,
-                },
-                attributes: {
-                  exclude: ["id"], // bỏ cột id
-                },
-                as: "specialtyData",
-
-                required: false,
-              },
-              {
-                model: db.Doctor_Infor,
-                where: {
-                  provinceId: location,
-                  lang: lang,
-                },
-                attributes: ["doctorId", "provinceId"],
-                as: "doctorSpecialty",
-                required: false,
-              },
-
-              {
-                model: db.Markdown,
-                attributes: ["contentHTML", "contentMarkdown", "description"],
-                as: "specialtyMarkdown",
-                where: { specialtyId: inputId, lang: lang },
-                required: false,
-              },
-            ],
-            raw: false,
-          });
-        }
-        if (data && data.image) {
-          data.image = Buffer.from(data.image, "base64").toString("binary");
-        }
-
-        resolve({
-          errMessage: data ? "ok" : "Không tìm thấy chuyên khoa",
-          errCode: 0,
-          data: data || {},
-        });
-      }
-    } catch (e) {
-      reject(e);
-    }
-  });
-};
 module.exports = {
   createSpecialty: createSpecialty,
   getAllSpecialty: getAllSpecialty,

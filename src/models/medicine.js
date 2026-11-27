@@ -1,16 +1,14 @@
 "use strict";
 module.exports = (sequelize, DataTypes) => {
-  const Medicine = sequelize.define(
+  return sequelize.define(
     "Medicine",
     {
       name: DataTypes.STRING,
-      unit: DataTypes.STRING,
+      unit: DataTypes.STRING(50),
       description: DataTypes.TEXT,
-      price: DataTypes.FLOAT,
+      price: DataTypes.DECIMAL(12, 2),
+      isActive: DataTypes.BOOLEAN,
     },
-    {
-      tableName: "medicines",
-    }
+    { tableName: "medicines" }
   );
-  return Medicine;
-}; 
+};
