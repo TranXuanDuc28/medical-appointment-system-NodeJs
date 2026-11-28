@@ -17,6 +17,13 @@ const sequelize = new Sequelize(
     logging: false,
     query: { raw: true },
     timezone: "+07:00",
+    // Mặc định Sequelize chỉ 5 kết nối: quá ít cho giờ cao điểm (mỗi thao tác hàng đợi giữ 1 kết nối suốt transaction)
+    pool: {
+      max: Number(process.env.DB_POOL_MAX) || 20,
+      min: 0,
+      acquire: Number(process.env.DB_POOL_ACQUIRE_MS) || 30000,
+      idle: 10000,
+    },
     define: {
       // Schema v2: cột snake_case (created_at, doctor_id...), thuộc tính trong code giữ camelCase
       underscored: true,

@@ -23,7 +23,7 @@ const {
   canTransition, computeSortAt, compareTickets, postponeSortAt, formatDisplayNo,
 } = require("./queueRules");
 
-const P = { CHECKIN: "queue:checkin", WALKIN: "queue:walkin:create", EMERGENCY: "queue:emergency", ANY_DOCTOR: "doctor-data:manage:any", ROOM: "room:manage" };
+const P = { CHECKIN: "queue:checkin", WALKIN: "queue:walkin:create", EMERGENCY: "queue:emergency", ANY_DOCTOR: "doctor-data:manage:any", ROOM: "room:manage", REBALANCE: "queue:rebalance" };
 
 /* ------------------------------ tiện ích ------------------------------ */
 const newTransaction = () =>
@@ -40,8 +40,10 @@ const currentShift = (now = new Date()) => {
 };
 
 /** Thông tin khung giờ từ reference_codes.meta ({start,end,shift}). */
-const slotInfo = async (timeCode, workDate) => {
-  const row = await db.AllCode.findOne({ where: { keyMap: timeCode }, attributes: ["meta"], raw: true });
+// Gọi trong transaction thì PHẢI truyền `t`: không có thì truy vấn xin thêm 1 connection trong khi transaction đang giữ 1 cái;
+// nhiều yêu cầu đồng thời > kích thước pool sẽ chờ nhau đến hết hạn (deadlock cạn pool, phát hiện bằng scripts/load-queue.js).
+const slotInfo = async (timeCode, workDate, t) => {
+  const row = await db.AllCode.findOne({ where: { keyMap: timeCode }, attributes: ["meta"], raw: true, transaction: t });
   let meta = row && row.meta;
   if (typeof meta === "string") meta = JSON.parse(meta);
   if (!meta || !meta.start) throw new QueueError("BAD_SLOT", `Khung giờ ${timeCode} chưa có cấu hình giờ (meta.start)`, 500);
@@ -202,7 +204,7 @@ const checkIn = async ({ bookingId, actor }) =>
 
     const existing = await lockRow(db.QueueTicket, { bookingId: booking.id }, t);
     const now = new Date();
-    const { shift, slotStart } = await slotInfo(booking.timeType, booking.workDate);
+    const { shift, slotStart } = await slotInfo(booking.timeType, booking.workDate, t);
     const priority = isPriorityAge(profile && profile.dateOfBirth) ? "ELDERLY" : "NORMAL";
     const sortAt = computeSortAt({ source: "BOOKED", slotStart, checkInAt: now, priority });
 
@@ -415,6 +417,33 @@ const finishTicket = ({ ticketId, actor }) =>
  *  - Lần đầu: xếp lại cuối hàng (WAITING), cho bệnh nhân thêm một cơ hội.
  *  - Lần hai: kết thúc (NO_SHOW) và huỷ lịch hẹn (nhả khung giờ).
  */
+/** Phần lõi đánh vắng mặt (dùng chung cho bác sĩ bấm tay và tự động): lần 1 xếp lại cuối hàng, lần 2 kết thúc + huỷ lịch hẹn. */
+const applyNoShow = async (ticket, actor, t, payload = {}) => {
+  const requeued = await db.QueueEvent.count({ where: { ticketId: ticket.id, eventType: EVENT.NO_SHOW_REQUEUE }, transaction: t });
+  if (requeued === 0) {
+    const sortAt = new Date();
+    await ticket.update({ status: STATUS.WAITING, callCount: 0, calledAt: null, sortAt }, { transaction: t });
+    await logEvent(ticket.id, EVENT.NO_SHOW_REQUEUE, actor, { sortAt, ...payload }, t);
+    return { ticket, extra: { requeued: true } };
+  }
+  await ticket.update({ status: STATUS.NO_SHOW }, { transaction: t });
+  await logEvent(ticket.id, EVENT.NO_SHOW, actor, { final: true, ...payload }, t);
+  const bookingId = ticket.bookingId;
+  return {
+    ticket,
+    extra: {
+      postCommit: async () => {
+        if (!bookingId) return;
+        try {
+          await require("../bookingService").cancelBookingById(bookingId, { force: true, reason: "NO_SHOW" });
+        } catch (e) {
+          console.error("[Queue] không huỷ được lịch hẹn sau NO_SHOW:", e.message);
+        }
+      },
+    },
+  };
+};
+
 const markNoShow = ({ ticketId, actor }) =>
   run(async (t) => {
     const ticket = await lockTicket(ticketId, t);
@@ -423,30 +452,100 @@ const markNoShow = ({ ticketId, actor }) =>
     if (ticket.callCount < CONFIG.MAX_CALLS) {
       throw new QueueError("NOT_ENOUGH_CALLS", `Cần gọi tối thiểu ${CONFIG.MAX_CALLS} lần (đã gọi ${ticket.callCount})`, 409);
     }
-    const requeued = await db.QueueEvent.count({ where: { ticketId: ticket.id, eventType: EVENT.NO_SHOW_REQUEUE }, transaction: t });
-    if (requeued === 0) {
-      const sortAt = new Date();
-      await ticket.update({ status: STATUS.WAITING, callCount: 0, calledAt: null, sortAt }, { transaction: t });
-      await logEvent(ticket.id, EVENT.NO_SHOW_REQUEUE, actor, { sortAt }, t);
-      return { ticket, extra: { requeued: true } };
+    return applyNoShow(ticket, actor, t);
+  }, { event: EVENT.NO_SHOW });
+
+/**
+ * Tự đánh vắng mặt: vé đang CALLED quá `timeoutMin` phút kể từ lần gọi gần nhất mà bác sĩ không xử lý
+ * (bệnh nhân không đến, bác sĩ quên bấm) -> coi như vắng mặt, giải phóng bác sĩ.
+ * Không cần đủ MAX_CALLS (đó là ràng buộc cho thao tác tay). Ghi payload {auto:true, timeoutMin}, actor = null (hệ thống).
+ * An toàn khi nhiều tiến trình chạy chồng: khoá dòng vé rồi kiểm tra lại điều kiện trước khi đổi.
+ */
+const autoNoShow = async ({ now = new Date(), timeoutMin = CONFIG.AUTO_NOSHOW_MIN } = {}) => {
+  const cutoff = new Date(now.getTime() - timeoutMin * 60 * 1000);
+  const stale = await db.QueueTicket.findAll({
+    where: { status: STATUS.CALLED, calledAt: { [Op.lt]: cutoff } }, attributes: ["id"], raw: true,
+  });
+  const out = { checked: stale.length, requeued: 0, noShow: 0, skipped: 0 };
+  for (const { id } of stale) {
+    try {
+      await run(async (t) => {
+        const ticket = await lockTicket(id, t);
+        if (ticket.status !== STATUS.CALLED || !ticket.calledAt || new Date(ticket.calledAt) >= cutoff) {
+          out.skipped += 1; // bác sĩ vừa xử lý/gọi lại trong lúc chờ khoá
+          return { ticket };
+        }
+        const r = await applyNoShow(ticket, null, t, { auto: true, timeoutMin, callCount: ticket.callCount });
+        if (r.extra.requeued) out.requeued += 1; else out.noShow += 1;
+        return r;
+      }, { event: EVENT.NO_SHOW });
+    } catch (e) {
+      out.skipped += 1;
+      console.error(`[Queue] tự đánh vắng mặt vé ${id} lỗi:`, e.message);
     }
-    await ticket.update({ status: STATUS.NO_SHOW }, { transaction: t });
-    await logEvent(ticket.id, EVENT.NO_SHOW, actor, { final: true }, t);
-    const bookingId = ticket.bookingId;
+  }
+  return out;
+};
+
+/**
+ * Chuyển vé sang phòng/bác sĩ khác (điều phối viên, quyền queue:rebalance) khi một phòng quá tải.
+ *  - Chỉ vé WAITING của HÔM NAY và chỉ bệnh nhân VÃNG LAI. Vé đã đặt đúng bác sĩ không được tự ý chuyển
+ *    (mâu thuẫn "đặt theo bác sĩ mong muốn", xem DanhGia_NangCap_HeThong.md mục 7).
+ *  - Đích phải cùng chuyên khoa và đang trực (có phòng). Không nêu toDoctorId: hệ thống chọn bác sĩ chờ ngắn nhất,
+ *    và chỉ chuyển nếu thật sự chờ ít hơn phòng hiện tại.
+ *  - Bệnh nhân KHÔNG mất lượt: giữ nguyên giờ vào hàng, mức ưu tiên và sortAt; chỉ đổi phòng/bác sĩ và cấp số mới ở phòng đích.
+ *  - Bắt buộc nêu lý do; ghi queue_events (TRANSFER) với phòng/số cũ và mới.
+ */
+const transferTicket = async ({ ticketId, toDoctorId, reason, actor }) => {
+  if (!has(actor, P.REBALANCE)) throw forbid();
+  if (!reason || String(reason).trim().length < 3) throw new QueueError("BAD_REQUEST", "Cần nêu lý do chuyển phòng", 400);
+  const cur = await db.QueueTicket.findOne({ where: { id: ticketId }, raw: true });
+  if (!cur) throw notFound("Không tìm thấy vé");
+  if (cur.bookingId || cur.source !== "WALK_IN") {
+    throw new QueueError("NOT_ALLOWED", "Bệnh nhân đã đặt lịch theo bác sĩ không được tự ý chuyển phòng; chỉ chuyển được bệnh nhân vãng lai", 409);
+  }
+  if (cur.status !== STATUS.WAITING) throw new QueueError("INVALID_TRANSITION", "Chỉ chuyển phòng được khi bệnh nhân đang chờ", 409);
+  if (cur.ticketDate !== todayDate()) throw new QueueError("NOT_ALLOWED", "Chỉ chuyển được vé của hôm nay", 409);
+
+  const profile = await db.DoctorProfile.findOne({ where: { doctorId: cur.doctorId }, attributes: ["specialtyId"], raw: true });
+  const candidates = await loadWalkInCandidates({ specialtyId: profile ? profile.specialtyId : undefined, priority: cur.priority });
+  const here = candidates.find((c) => Number(c.doctorId) === Number(cur.doctorId));
+  let target;
+  let assignedBy = "MANUAL";
+  if (toDoctorId) {
+    if (Number(toDoctorId) === Number(cur.doctorId)) throw new QueueError("BAD_REQUEST", "Vé đang ở bác sĩ này rồi", 400);
+    target = candidates.find((c) => Number(c.doctorId) === Number(toDoctorId));
+    if (!target) throw new QueueError("TARGET_UNAVAILABLE", "Bác sĩ đích không đang trực hoặc không cùng chuyên khoa", 409);
+  } else {
+    assignedBy = "AUTO";
+    target = candidates.find((c) => Number(c.doctorId) !== Number(cur.doctorId));
+    if (!target) throw new QueueError("NO_DOCTOR_AVAILABLE", "Không có phòng nào khác cùng chuyên khoa đang trực", 409);
+    if (here && target.waitMin !== null && here.waitMin !== null && target.waitMin >= here.waitMin) {
+      throw new QueueError("NO_BETTER_ROOM", "Không có phòng nào chờ ngắn hơn phòng hiện tại", 409);
+    }
+  }
+
+  return run(async (t) => {
+    const ticket = await lockTicket(ticketId, t);
+    assertTransition(EVENT.TRANSFER, ticket, "Chỉ chuyển phòng được khi bệnh nhân đang chờ");
+    const room = await lockRoom(target.room.id, t);
+    const maxSeq = await db.QueueTicket.max("seq", { where: { roomId: room.id, ticketDate: ticket.ticketDate, shift: ticket.shift }, transaction: t });
+    const seq = (Number(maxSeq) || 0) + 1;
+    const from = { doctorId: Number(ticket.doctorId), roomId: Number(ticket.roomId), displayNo: ticket.displayNo, shift: ticket.shift, ticketDate: ticket.ticketDate };
+    await ticket.update({ roomId: room.id, doctorId: target.doctorId, seq, displayNo: formatDisplayNo(room.code, seq), callCount: 0, calledAt: null }, { transaction: t });
+    await logEvent(ticket.id, EVENT.TRANSFER, actor, {
+      reason: String(reason).trim(), assignedBy,
+      fromDoctorId: from.doctorId, fromRoomId: from.roomId, fromDisplayNo: from.displayNo,
+      toDoctorId: Number(target.doctorId), toRoomId: Number(room.id), toDisplayNo: ticket.displayNo,
+      fromWaitMin: here ? here.waitMin : null, toWaitMin: target.waitMin,
+    }, t);
     return {
       ticket,
-      extra: {
-        postCommit: async () => {
-          if (!bookingId) return;
-          try {
-            await require("../bookingService").cancelBookingById(bookingId, { force: true, reason: "NO_SHOW" });
-          } catch (e) {
-            console.error("[Queue] không huỷ được lịch hẹn sau NO_SHOW:", e.message);
-          }
-        },
-      },
+      // phòng cũ cũng cần làm mới bảng bác sĩ / màn hình / ETA
+      extra: { postCommit: async () => afterCommit({ ...from, id: ticket.id, status: STATUS.WAITING }, EVENT.TRANSFER, { transferredOut: true }) },
     };
-  }, { event: EVENT.NO_SHOW });
+  }, { event: EVENT.TRANSFER });
+};
 
 /* ------------------------------ ghi: bệnh nhân / lễ tân ------------------------------ */
 
@@ -686,7 +785,7 @@ const assignRoom = async ({ doctorId, date, roomId }, actor) => {
 };
 
 module.exports = {
-  checkIn, createWalkIn, suggestWalkInDoctors, callTicket, callNext, startTicket, finishTicket, markNoShow, postpone, emergency, cancel,
+  checkIn, createWalkIn, suggestWalkInDoctors, callTicket, callNext, startTicket, finishTicket, markNoShow, autoNoShow, transferTicket, postpone, emergency, cancel,
   getTicket, getDoctorBoard, getMyTickets, getRoomDisplay, getRoomSnapshot, getActiveTicketsForPush,
   listRooms, createRoom, updateRoom, assignRoom,
   // dùng cho test

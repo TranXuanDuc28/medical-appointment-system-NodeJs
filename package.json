@@ -59,7 +59,8 @@
     "smoke:content": "babel-node scripts/smoke-content.js",
     "smoke:misc": "babel-node scripts/smoke-misc.js",
     "smoke:queue": "node scripts/e2e-queue.js",
-    "smoke:ai": "node scripts/e2e-ai.js"
+    "smoke:ai": "node scripts/e2e-ai.js",
+    "load:queue": "node scripts/load-queue.js"
   },
   "keywords": [
     "fullstack",
