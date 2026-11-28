@@ -109,7 +109,7 @@ const dayStr = (offset) => new Date(Date.now() + offset * 86400000).toLocaleDate
     // Lịch hẹn đã xác nhận hôm nay (để thử check-in): bệnh nhân 1 -> BS nội, bệnh nhân 2 -> BS tim mạch
     const mkBooking = async (email, doc, timeType) => {
       const patientId = ids[email];
-      const exists = await db.Booking.findOne({ where: { patientId, workDate: today, timeType }, raw: true });
+      const exists = await db.Booking.findOne({ where: { patientId, workDate: today }, raw: true }); // đã có lịch hôm nay thì thôi (chạy lại không nhân đôi)
       if (exists) return;
       const profile = await db.PatientProfile.findOne({ where: { ownerUserId: patientId, relationship: "SELF" }, raw: true });
       await db.Booking.create({
@@ -118,8 +118,11 @@ const dayStr = (offset) => new Date(Date.now() + offset * 86400000).toLocaleDate
       });
       await db.Schedule.increment({ currentNumber: 1 }, { where: { doctorId: doc.doctorId, workDate: today, timeType } });
     };
-    await mkBooking("benhnhan1@demo.local", SPECIALTIES[0], "T2");
-    await mkBooking("benhnhan2@demo.local", SPECIALTIES[1], "T2");
+    // Chọn khung giờ theo ca hiện tại (giờ Việt Nam) để check-in demo luôn rơi đúng ca, số thứ tự không lệch ca với bệnh nhân vãng lai
+    const vnHour = Number(new Date().toLocaleString("en-GB", { timeZone: "Asia/Ho_Chi_Minh", hour: "2-digit", hour12: false }));
+    const demoSlot = vnHour < 12 ? "T2" : "T6"; // T2 = 09:00 (sáng), T6 = 14:00 (chiều)
+    await mkBooking("benhnhan1@demo.local", SPECIALTIES[0], demoSlot);
+    await mkBooking("benhnhan2@demo.local", SPECIALTIES[1], demoSlot);
 
     console.log(`✅ Seed demo xong (mật khẩu chung: ${PASSWORD})`);
     for (const a of out.accounts) console.log(`   ${a.email.padEnd(24)} ${a.role}${a.extra ? "  " + a.extra : ""}`);
