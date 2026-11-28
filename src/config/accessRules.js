@@ -78,6 +78,8 @@ module.exports = {
     ["POST", "/api/queue/check-in", AUTH], // nhân viên có queue:checkin hoặc chính bệnh nhân đặt lịch
     ["POST", "/api/queue/walk-in", [P.QUEUE_WALKIN_CREATE]],
     ["GET", "/api/queue/walk-in/suggest", [P.QUEUE_WALKIN_CREATE, P.QUEUE_REBALANCE]],
+    ["GET", "/api/queue/heatmap", [P.QUEUE_REBALANCE, P.ANALYTICS_READ]],
+    ["GET", "/api/queue/stats", [P.ANALYTICS_READ, P.QUEUE_REBALANCE]],
     ["POST", "/api/queue/doctor/call-next", [P.QUEUE_CALL]],
     ["GET", "/api/queue/doctor/board", [P.QUEUE_CALL]],
     ["POST", "/api/queue/tickets/:id/call", [P.QUEUE_CALL]],
