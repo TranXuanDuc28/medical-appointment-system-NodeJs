@@ -19,7 +19,9 @@ if (!map[cmd]) {
 }
 const env = { ...process.env, DB_DATABASE_NAME: process.env.V2_DB_NAME || "webhealthcare_v2" };
 const bin = path.join(__dirname, "..", "node_modules", ".bin", process.platform === "win32" ? "sequelize-cli.cmd" : "sequelize-cli");
-const r = spawnSync(bin, [...map[cmd], "--config", "src/config/config.js"], {
+// Luôn dùng khối "development" của config.js: khối đó đọc DB_* từ biến môi trường, còn "production"/"test" là giá trị cứng cho localhost.
+// (Không có --env thì sequelize-cli theo NODE_ENV và lỗi "Dialect needs to be explicitly supplied" khi chạy trong Docker/production.)
+const r = spawnSync(bin, [...map[cmd], "--config", "src/config/config.js", "--env", "development"], {
   stdio: "inherit",
   env,
   shell: process.platform === "win32",
