@@ -35,7 +35,7 @@ Cả ba: 0 lỗi, 0 trùng số thứ tự, mọi vé `DONE`. p95 "gọi số �
 
 ### Điểm yếu còn lại
 
-- **Bão check-in chậm:** khi 100–200 người check-in *đúng cùng một khoảnh khắc*, p95 độ trễ HTTP là 3,7–5,6 giây (thông lượng 23–50 lượt/giây). Đúng nhưng chậm: các vé cùng phòng xếp hàng qua khoá dòng phòng (để không trùng số) và mỗi lần check-in còn tính ETA ghi dự đoán sau commit. Thực tế người bệnh đến rải rác nên khó gặp, nhưng giờ mở cửa buổi sáng có thể tăng đột biến. Chưa tối ưu; hướng xử lý: đẩy phần ghi dự đoán AI ra khỏi đường phản hồi, gom đẩy ETA.
+- **Bão check-in vẫn là điểm chậm nhất, nhưng đã nhanh hơn 2–3 lần** (xem "Tối ưu bão check-in" bên dưới): còn khoảng 1,0–2,3 giây p95 khi 100–200 người check-in cùng một khoảnh khắc (thông lượng 65–106 lượt/giây, trước đó 23–50). Vẫn bị chặn bởi khoá dòng phòng (để không trùng số) và số kết nối DB. Số liệu **dao động mạnh giữa các lần chạy** (có lần 200 BN/10 phòng lên tới 5,5 giây) vì máy dev dùng chung với client tải.
 - Chưa đo: nhiều tiến trình server (cluster/nhiều replica cần Redis adapter cho socket), AI Service bật, mạng thật (không phải localhost), chạy kéo dài (soak).
 - Overbooking mới kiểm ở tầng service (gọi trực tiếp), không qua HTTP, vì `bookingLimiter` chặn 15 yêu cầu/10 phút/IP và việc gửi email thật.
 
@@ -49,3 +49,18 @@ Sửa: `slotInfo` nhận và dùng `transaction`; đặt pool tường minh `DB_
 
 - `LOAD_TEST_DISABLE_RATE_LIMIT=true` tắt **mọi** giới hạn tần suất. Chỉ dùng khi đo trên máy dev, không bật ở môi trường thật.
 - Dọn dữ liệu chạy ở `finally`; nếu kịch bản bị ngắt giữa chừng, tìm và xoá email `load-*`, phòng `LT*`.
+
+## Tối ưu bão check-in (28/11/2026)
+
+Đo thời gian từng giai đoạn của một lần check-in (100 BN, 5 phòng) thấy phần lớn thời gian là **chờ kết nối DB** và các truy vấn sau commit, không phải phần giữ khoá phòng. Mỗi check-in trước đây kéo theo 3–4 lần tính ETA (mỗi lần đọc cả hàng đợi, trung bình lịch sử, gọi AI) và một lần phát socket cho **toàn bộ** hàng đợi của bác sĩ: tổng việc tăng theo bình phương số người chờ.
+
+| Thay đổi | Tác dụng |
+|---|---|
+| Gộp lần tính ETA đang chạy của cùng bác sĩ/ngày khi dữ liệu chưa đổi (`etaForDoctor`, có "phiên bản" tăng sau mỗi commit; không lưu kết quả sau khi xong) | 3–4 lần tính còn khoảng 1; không bao giờ trả số cũ (có test cố ý tạo chồng lấn, đã kiểm bằng cách tắt cơ chế phiên bản thì test thất bại) |
+| Gộp phát socket theo bác sĩ trong 80 ms (`QUEUE_BROADCAST_BATCH_MS`, 0 = tắt); **gọi số vẫn phát ngay** | mỗi phòng chỉ phát snapshot 1 lần và mỗi bệnh nhân nhận vé mới nhất 1 lần cho cả loạt |
+| Ghi dự đoán AI (`ai_predictions`) chạy nền, nối tiếp từng việc và nhường khi còn thao tác của người dùng | không tranh kết nối với yêu cầu đang chờ |
+| Nhớ cấu hình khung giờ 60 giây; không truy vấn lại chủ vé khi check-in | bớt 2–3 truy vấn mỗi lần |
+
+So sánh **cùng một phiên đo, cùng máy** (200 BN, 10 phòng): code cũ check-in p95 **4,4 / 4,8 / 7,8 s**; code mới **2,0 / 2,3 / 5,5 s** (và 2,1–2,2 s ở 4 lần khác). Cấu hình 100 BN/5 phòng: 3,1 s → 1,0–1,4 s; 200 BN/5 phòng: 3,7 s → 1,9 s. p95 "gọi số → TV/điện thoại" không xấu đi (121–315 ms ở hầu hết lần chạy). Cả hai bản đều có một lần p95 gọi số vượt 1000 ms trong lúc máy bị nhiễu, nên đó là biến động của môi trường chứ không do thay đổi này.
+
+Đánh đổi cần biết: (1) thông báo hàng đợi dồn dập có thể trễ tối đa 80 ms (người dùng không nhận ra; gọi số không bị ảnh hưởng); (2) dự đoán AI "lúc vào hàng" ghi trễ vài chục đến vài trăm ms sau check-in, và nếu vé đã được phục vụ xong trước khi việc nền chạy tới (chỉ xảy ra khi bão kéo dài hơn thời gian khám) thì dòng đối sánh của vé đó bị bỏ; (3) việc nền nằm trong bộ nhớ, tắt server giữa chừng thì mất các việc chưa chạy.
