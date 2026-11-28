@@ -1,7 +1,11 @@
 const { rateLimit } = require("express-rate-limit");
 
+// CHỈ để đo tải (scripts/load-queue.js) trên máy dev: LOAD_TEST_DISABLE_RATE_LIMIT=true tắt mọi giới hạn. Không bật ở môi trường thật.
+const DISABLED = String(process.env.LOAD_TEST_DISABLE_RATE_LIMIT).toLowerCase() === "true";
+
 const make = (windowMinutes, max, message) =>
   rateLimit({
+    skip: () => DISABLED,
     windowMs: windowMinutes * 60 * 1000,
     limit: max,
     standardHeaders: "draft-7",

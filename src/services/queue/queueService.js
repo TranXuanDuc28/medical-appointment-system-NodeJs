@@ -40,8 +40,10 @@ const currentShift = (now = new Date()) => {
 };
 
 /** Thông tin khung giờ từ reference_codes.meta ({start,end,shift}). */
-const slotInfo = async (timeCode, workDate) => {
-  const row = await db.AllCode.findOne({ where: { keyMap: timeCode }, attributes: ["meta"], raw: true });
+// Gọi trong transaction thì PHẢI truyền `t`: không có thì truy vấn xin thêm 1 connection trong khi transaction đang giữ 1 cái;
+// nhiều yêu cầu đồng thời > kích thước pool sẽ chờ nhau đến hết hạn (deadlock cạn pool, phát hiện bằng scripts/load-queue.js).
+const slotInfo = async (timeCode, workDate, t) => {
+  const row = await db.AllCode.findOne({ where: { keyMap: timeCode }, attributes: ["meta"], raw: true, transaction: t });
   let meta = row && row.meta;
   if (typeof meta === "string") meta = JSON.parse(meta);
   if (!meta || !meta.start) throw new QueueError("BAD_SLOT", `Khung giờ ${timeCode} chưa có cấu hình giờ (meta.start)`, 500);
@@ -202,7 +204,7 @@ const checkIn = async ({ bookingId, actor }) =>
 
     const existing = await lockRow(db.QueueTicket, { bookingId: booking.id }, t);
     const now = new Date();
-    const { shift, slotStart } = await slotInfo(booking.timeType, booking.workDate);
+    const { shift, slotStart } = await slotInfo(booking.timeType, booking.workDate, t);
     const priority = isPriorityAge(profile && profile.dateOfBirth) ? "ELDERLY" : "NORMAL";
     const sortAt = computeSortAt({ source: "BOOKED", slotStart, checkInAt: now, priority });
 
