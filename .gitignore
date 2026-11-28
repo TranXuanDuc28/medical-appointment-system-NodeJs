@@ -44,3 +44,8 @@ desktop.ini
 /uploads/*
 !/uploads/.gitkeep
 
+
+# Tệp người dùng tải lên (không đưa vào git)
+/src/public/uploads/*
+!/src/public/uploads/.gitkeep
+/build
