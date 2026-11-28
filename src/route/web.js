@@ -16,6 +16,7 @@ import { cacheMiddleware, invalidateCache } from "../utils/redis";
 import rbacController from "../controllers/rbacController";
 import queueController from "../controllers/queueController";
 import aiController from "../controllers/aiController";
+import notificationController from "../controllers/notificationController";
 import { selfOrPermission, doctorSelf } from "../middleware/ownership";
 import { medicalRecordPolicy, appointmentReadPolicy } from "../middleware/policies";
 import { P } from "../config/permissions";
@@ -83,6 +84,11 @@ let initWebRoutes = (app) => {
   router.post("/api/ai/triage", aiLimiter, aiController.triage);
   router.get("/api/ai/status", aiController.status);
   router.get("/api/ai/metrics", aiController.metrics);
+  // Thông báo của chính người dùng (nhắc hẹn, sắp đến lượt...)
+  router.get("/api/notifications", notificationController.list);
+  router.get("/api/notifications/unread-count", notificationController.unreadCount);
+  router.post("/api/notifications/read-all", notificationController.markAllRead);
+  router.post("/api/notifications/:id/read", notificationController.markRead);
   // Hàng đợi khám bệnh (quyền kiểm bởi accessControl theo accessRules + kiểm tra chủ vé/bác sĩ trong queueService)
   router.post("/api/queue/check-in", queueController.checkIn);
   router.post("/api/queue/walk-in", queueController.walkIn);
