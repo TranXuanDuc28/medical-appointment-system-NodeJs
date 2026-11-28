@@ -85,6 +85,8 @@ let initWebRoutes = (app) => {
   router.post("/api/queue/check-in", queueController.checkIn);
   router.post("/api/queue/walk-in", queueController.walkIn);
   router.get("/api/queue/walk-in/suggest", queueController.suggestWalkIn);
+  router.get("/api/queue/heatmap", queueController.heatmap);
+  router.get("/api/queue/stats", queueController.stats);
   router.post("/api/queue/doctor/call-next", queueController.callNext);
   router.get("/api/queue/doctor/board", queueController.doctorBoard);
   router.post("/api/queue/tickets/:id/call", queueController.call);

@@ -48,6 +48,8 @@ Quyền do bảng `accessRules` + RBAC quy định; kiểm tra chủ vé/bác s�
 | POST | `/check-in` `{bookingId}` | nhân viên `queue:checkin` hoặc chính bệnh nhân | Vào hàng (lịch hẹn phải đã xác nhận và đúng ngày). Idempotent |
 | POST | `/walk-in` `{doctorId?, specialtyId?, clinicId?, fullName, phone?, priority?}` | `queue:walkin:create` | Đăng ký vãng lai. Có `doctorId`: xếp đúng bác sĩ đó. Không có: cần `specialtyId` và/hoặc `clinicId`, hệ thống **tự chọn bác sĩ đang trực chờ ngắn nhất** (xem "Cân bằng tải") |
 | GET | `/walk-in/suggest?specialtyId=&clinicId=&priority=` | `queue:walkin:create` hoặc `queue:rebalance` | Bảng tải các bác sĩ đang trực, xếp theo thời gian chờ dự kiến của một vé vãng lai mới; `recommendedDoctorId` là người được chọn |
+| GET | `/heatmap?date=&clinicId=` | `queue:rebalance` hoặc `analytics:read` | Bản đồ nhiệt các phòng (xem "Heatmap và thống kê") |
+| GET | `/stats?from=&to=&clinicId=` | `analytics:read` hoặc `queue:rebalance` | Thống kê theo khoảng ngày (tối đa 92 ngày) |
 | POST | `/doctor/call-next` | `queue:call` | Gọi người đứng đầu hàng của bác sĩ |
 | GET | `/doctor/board?date=` | `queue:call` | Đang xử lý + hàng chờ (đã sắp, có ETA) + đã xong + thống kê |
 | POST | `/tickets/:id/call` `/start` `/finish` `/no-show` | `queue:call` / `start` / `finish` / `noshow` | Thao tác theo vé (chỉ bác sĩ của vé) |
@@ -107,3 +109,16 @@ Bệnh nhân vãng lai chọn **chuyên khoa** (hoặc phòng khám) thay vì b�
 5. Lý do chọn được ghi vào `queue_events.payload` của sự kiện `WALK_IN` (`assignedBy: "AUTO"`, `chosenWaitMin`, `considered[]`) để truy vết/đánh giá.
 
 Giới hạn: ước tính ứng viên dùng trung bình thực tế của từng bác sĩ (không gọi AI cho từng ứng viên, giữ phản hồi nhanh; vé thật vẫn được ETA bằng AI như cũ). Việc chọn và tạo vé là hai bước nên khi nhiều quầy đăng ký đúng lúc có thể lệch 1 người (số thứ tự vẫn không trùng nhờ khoá phòng). **Chưa có** chuyển vé đang chờ sang phòng khác khi một phòng quá tải (quyền `queue:rebalance` mới dùng để xem bảng tải).
+
+## Heatmap và thống kê (Admin / Điều phối viên)
+
+`queueAnalytics.js`. Quyền: `queue:rebalance` (điều phối viên R7) hoặc `analytics:read` (admin). Ngày nhận `YYYY-MM-DD` hoặc chuỗi ms kiểu cũ.
+
+**`GET /api/queue/heatmap?date=&clinicId=`** — mỗi phòng đang hoạt động một dòng:
+- `level`: `GREEN` / `YELLOW` / `RED` theo `waitMin` = thời gian chờ dự kiến của **một người mới** vào phòng (bác sĩ trực chờ ngắn nhất, cùng cách tính với cân bằng tải); `IDLE` khi không có bác sĩ trực và không có người chờ. Ngưỡng mặc định: xanh < 15', vàng 15–30', đỏ ≥ 30' (đổi bằng `HEATMAP_YELLOW_MIN`, `HEATMAP_RED_MIN`; kết quả trả kèm `thresholds` để vẽ chú giải).
+- `waitBasis`: `eta` (tính từ hàng đợi thật) hoặc `estimate` (còn người chờ nhưng không có bác sĩ trực: ước tính thô = số người × 15').
+- Số liệu trong ngày: `waiting`, `inService`, `done`, `noShow`, `cancelled`, `total`, `walkIn`, `emergency`, `avgWaitMin` (vào hàng → bắt đầu khám), `avgExamMin` (bỏ ca bấm nhầm < 1 giây); `doctors[]` (bác sĩ đang trực + chờ + số người chờ).
+- `summary` = số phòng theo màu. **Chỉ hôm nay mới có màu** (`live: true`); ngày khác chỉ có số liệu đã diễn ra, `level = null`.
+- Frontend nên **tải lại khi nhận socket `QUEUE_UPDATED` / `DOCTOR_QUEUE_UPDATED`** (hoặc poll ~15s) thay vì giữ kết nối riêng.
+
+**`GET /api/queue/stats?from=&to=&clinicId=`** — mặc định hôm nay; tối đa 92 ngày; trả `totals`, `byDay[]`, `byDoctor[]` (top 50) với: `total`, `done`, `noShow`, `cancelled`, `booked`, `walkIn`, `emergency`, `elderly`, `noShowRate` (%, = vắng / (khám + vắng), `null` nếu chưa có kết cục), `avgWaitMin`, `avgExamMin`. Sai ngày/khoảng quá dài → 400.

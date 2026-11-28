@@ -1,4 +1,5 @@
 const queue = require("../services/queue/queueService");
+const analytics = require("../services/queue/queueAnalytics");
 const audit = require("../services/auditService");
 const { QueueError } = require("../services/queue/queueRules");
 
@@ -28,6 +29,10 @@ const walkIn = handle(async (req) => {
 });
 const suggestWalkIn = handle(async (req) =>
   queue.suggestWalkInDoctors({ specialtyId: Number(req.query.specialtyId) || null, clinicId: Number(req.query.clinicId) || null, priority: req.query.priority || "NORMAL", actor: actorOf(req) }));
+const heatmap = handle(async (req) =>
+  analytics.getHeatmap({ date: req.query.date, clinicId: Number(req.query.clinicId) || null }));
+const stats = handle(async (req) =>
+  analytics.getStats({ from: req.query.from, to: req.query.to, clinicId: Number(req.query.clinicId) || null }));
 const callNext = handle(async (req) => queue.callNext({ doctorId: (req.body || {}).doctorId, actor: actorOf(req) }));
 const call = handle(async (req) => queue.callTicket({ ticketId: idOf(req), actor: actorOf(req) }));
 const start = handle(async (req) => queue.startTicket({ ticketId: idOf(req), actor: actorOf(req) }));
@@ -52,6 +57,6 @@ const updateRoom = handle(async (req) => queue.updateRoom(idOf(req), req.body ||
 const assignRoom = handle(async (req) => queue.assignRoom(req.body || {}, actorOf(req)));
 
 module.exports = {
-  checkIn, walkIn, suggestWalkIn, callNext, call, start, finish, noShow, postpone, cancel, emergency,
+  checkIn, walkIn, suggestWalkIn, heatmap, stats, callNext, call, start, finish, noShow, postpone, cancel, emergency,
   doctorBoard, myTickets, roomDisplay, listRooms, createRoom, updateRoom, assignRoom,
 };
