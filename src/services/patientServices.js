@@ -2,6 +2,7 @@ import db from "../models/index";
 require("dotenv").config();
 import emailService from "./emailServices";
 import bookingService from "./bookingService";
+import triageService from "./ai/triageService";
 import { dateToMs } from "../utils/dateKey";
 import { historyOf } from "../utils/legacyShapes";
 
@@ -34,6 +35,13 @@ let postBookAppointmentServices = async (data) => {
       errCode: 8,
       errMessage: "Không gửi được email xác nhận, vui lòng thử lại sau!",
     };
+  }
+
+  // Lưu triệu chứng + mức nặng bệnh nhân khai (kèm gợi ý của AI nếu có) – best-effort, không chặn việc đặt lịch
+  if (data.symptoms || data.severity) {
+    triageService
+      .recordIntake({ bookingId: booking.id, userId: booking.patientId, text: data.symptoms, severity: data.severity })
+      .catch((e) => console.error("[AI] không lưu được triệu chứng:", e.message));
   }
 
   // KHÔNG trả token (token là bí mật xác thực email)
