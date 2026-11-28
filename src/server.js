@@ -17,7 +17,8 @@ import path from "path";
 import { initRedis } from "./utils/redis";
 import { initQueue } from "./utils/queue";
 import { corsOptions } from "./config/cors";
-import { accessControl } from "./middleware/accessControl";
+import { accessControl, authenticate } from "./middleware/accessControl";
+import { makeUploadsHandler } from "./middleware/uploadAccess";
 import { apiLimiter } from "./middleware/rateLimit";
 import { startHoldSweeper } from "./services/bookingService";
 import { syncRbac } from "./services/rbacService";
@@ -38,6 +39,10 @@ app.use(bodyParser.json({ limit: "10mb" }));
 app.use(bodyParser.urlencoded({ limit: "10mb", extended: true }));
 app.use(cookieParser());
 
+// PHẢI đặt TRƯỚC viewEngine (nó mở express.static cho cả src/public, trong đó có /uploads => sẽ lộ công khai nếu đứng trước)
+// File tải lên: phải đăng nhập và là người tải lên / người gửi / người nhận tin nhắn đính kèm (xem middleware/uploadAccess.js)
+app.use("/uploads", makeUploadsHandler({ dir: path.join(__dirname, "public/uploads"), authenticate }));
+
 viewEngine(app);
 
 // Giới hạn tần suất chung + phân quyền default-deny cho mọi /api/*
@@ -45,9 +50,6 @@ app.use("/api", apiLimiter);
 app.use(accessControl);
 
 initWebRoutes(app);
-
-// Serve static cho thư mục uploads
-app.use("/uploads", express.static(path.join(__dirname, "public/uploads")));
 
 // Error handler cuối cùng: không lộ stack trace
 // eslint-disable-next-line no-unused-vars
