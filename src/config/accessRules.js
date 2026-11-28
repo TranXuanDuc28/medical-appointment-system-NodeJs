@@ -86,6 +86,7 @@ module.exports = {
     ["POST", "/api/queue/tickets/:id/start", [P.QUEUE_START]],
     ["POST", "/api/queue/tickets/:id/finish", [P.QUEUE_FINISH]],
     ["POST", "/api/queue/tickets/:id/no-show", [P.QUEUE_NOSHOW]],
+    ["POST", "/api/queue/tickets/:id/transfer", [P.QUEUE_REBALANCE]],
     ["POST", "/api/queue/tickets/:id/postpone", AUTH], // chủ vé hoặc queue:checkin
     ["POST", "/api/queue/tickets/:id/emergency", [P.QUEUE_EMERGENCY]],
     ["POST", "/api/queue/tickets/:id/cancel", AUTH], // chủ vé hoặc queue:checkin

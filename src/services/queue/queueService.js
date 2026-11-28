@@ -23,7 +23,7 @@ const {
   canTransition, computeSortAt, compareTickets, postponeSortAt, formatDisplayNo,
 } = require("./queueRules");
 
-const P = { CHECKIN: "queue:checkin", WALKIN: "queue:walkin:create", EMERGENCY: "queue:emergency", ANY_DOCTOR: "doctor-data:manage:any", ROOM: "room:manage" };
+const P = { CHECKIN: "queue:checkin", WALKIN: "queue:walkin:create", EMERGENCY: "queue:emergency", ANY_DOCTOR: "doctor-data:manage:any", ROOM: "room:manage", REBALANCE: "queue:rebalance" };
 
 /* ------------------------------ tiện ích ------------------------------ */
 const newTransaction = () =>
@@ -485,6 +485,66 @@ const autoNoShow = async ({ now = new Date(), timeoutMin = CONFIG.AUTO_NOSHOW_MI
   return out;
 };
 
+/**
+ * Chuyển vé sang phòng/bác sĩ khác (điều phối viên, quyền queue:rebalance) khi một phòng quá tải.
+ *  - Chỉ vé WAITING của HÔM NAY và chỉ bệnh nhân VÃNG LAI. Vé đã đặt đúng bác sĩ không được tự ý chuyển
+ *    (mâu thuẫn "đặt theo bác sĩ mong muốn", xem DanhGia_NangCap_HeThong.md mục 7).
+ *  - Đích phải cùng chuyên khoa và đang trực (có phòng). Không nêu toDoctorId: hệ thống chọn bác sĩ chờ ngắn nhất,
+ *    và chỉ chuyển nếu thật sự chờ ít hơn phòng hiện tại.
+ *  - Bệnh nhân KHÔNG mất lượt: giữ nguyên giờ vào hàng, mức ưu tiên và sortAt; chỉ đổi phòng/bác sĩ và cấp số mới ở phòng đích.
+ *  - Bắt buộc nêu lý do; ghi queue_events (TRANSFER) với phòng/số cũ và mới.
+ */
+const transferTicket = async ({ ticketId, toDoctorId, reason, actor }) => {
+  if (!has(actor, P.REBALANCE)) throw forbid();
+  if (!reason || String(reason).trim().length < 3) throw new QueueError("BAD_REQUEST", "Cần nêu lý do chuyển phòng", 400);
+  const cur = await db.QueueTicket.findOne({ where: { id: ticketId }, raw: true });
+  if (!cur) throw notFound("Không tìm thấy vé");
+  if (cur.bookingId || cur.source !== "WALK_IN") {
+    throw new QueueError("NOT_ALLOWED", "Bệnh nhân đã đặt lịch theo bác sĩ không được tự ý chuyển phòng; chỉ chuyển được bệnh nhân vãng lai", 409);
+  }
+  if (cur.status !== STATUS.WAITING) throw new QueueError("INVALID_TRANSITION", "Chỉ chuyển phòng được khi bệnh nhân đang chờ", 409);
+  if (cur.ticketDate !== todayDate()) throw new QueueError("NOT_ALLOWED", "Chỉ chuyển được vé của hôm nay", 409);
+
+  const profile = await db.DoctorProfile.findOne({ where: { doctorId: cur.doctorId }, attributes: ["specialtyId"], raw: true });
+  const candidates = await loadWalkInCandidates({ specialtyId: profile ? profile.specialtyId : undefined, priority: cur.priority });
+  const here = candidates.find((c) => Number(c.doctorId) === Number(cur.doctorId));
+  let target;
+  let assignedBy = "MANUAL";
+  if (toDoctorId) {
+    if (Number(toDoctorId) === Number(cur.doctorId)) throw new QueueError("BAD_REQUEST", "Vé đang ở bác sĩ này rồi", 400);
+    target = candidates.find((c) => Number(c.doctorId) === Number(toDoctorId));
+    if (!target) throw new QueueError("TARGET_UNAVAILABLE", "Bác sĩ đích không đang trực hoặc không cùng chuyên khoa", 409);
+  } else {
+    assignedBy = "AUTO";
+    target = candidates.find((c) => Number(c.doctorId) !== Number(cur.doctorId));
+    if (!target) throw new QueueError("NO_DOCTOR_AVAILABLE", "Không có phòng nào khác cùng chuyên khoa đang trực", 409);
+    if (here && target.waitMin !== null && here.waitMin !== null && target.waitMin >= here.waitMin) {
+      throw new QueueError("NO_BETTER_ROOM", "Không có phòng nào chờ ngắn hơn phòng hiện tại", 409);
+    }
+  }
+
+  return run(async (t) => {
+    const ticket = await lockTicket(ticketId, t);
+    assertTransition(EVENT.TRANSFER, ticket, "Chỉ chuyển phòng được khi bệnh nhân đang chờ");
+    const room = await lockRoom(target.room.id, t);
+    const maxSeq = await db.QueueTicket.max("seq", { where: { roomId: room.id, ticketDate: ticket.ticketDate, shift: ticket.shift }, transaction: t });
+    const seq = (Number(maxSeq) || 0) + 1;
+    const from = { doctorId: Number(ticket.doctorId), roomId: Number(ticket.roomId), displayNo: ticket.displayNo, shift: ticket.shift, ticketDate: ticket.ticketDate };
+    await ticket.update({ roomId: room.id, doctorId: target.doctorId, seq, displayNo: formatDisplayNo(room.code, seq), callCount: 0, calledAt: null }, { transaction: t });
+    await logEvent(ticket.id, EVENT.TRANSFER, actor, {
+      reason: String(reason).trim(), assignedBy,
+      fromDoctorId: from.doctorId, fromRoomId: from.roomId, fromDisplayNo: from.displayNo,
+      toDoctorId: Number(target.doctorId), toRoomId: Number(room.id), toDisplayNo: ticket.displayNo,
+      fromWaitMin: here ? here.waitMin : null, toWaitMin: target.waitMin,
+    }, t);
+    return {
+      ticket,
+      // phòng cũ cũng cần làm mới bảng bác sĩ / màn hình / ETA
+      extra: { postCommit: async () => afterCommit({ ...from, id: ticket.id, status: STATUS.WAITING }, EVENT.TRANSFER, { transferredOut: true }) },
+    };
+  }, { event: EVENT.TRANSFER });
+};
+
 /* ------------------------------ ghi: bệnh nhân / lễ tân ------------------------------ */
 
 /** Xin dời lượt: nhường cho POSTPONE_AHEAD người phía sau, tối đa MAX_POSTPONE lần. */
@@ -723,7 +783,7 @@ const assignRoom = async ({ doctorId, date, roomId }, actor) => {
 };
 
 module.exports = {
-  checkIn, createWalkIn, suggestWalkInDoctors, callTicket, callNext, startTicket, finishTicket, markNoShow, autoNoShow, postpone, emergency, cancel,
+  checkIn, createWalkIn, suggestWalkInDoctors, callTicket, callNext, startTicket, finishTicket, markNoShow, autoNoShow, transferTicket, postpone, emergency, cancel,
   getTicket, getDoctorBoard, getMyTickets, getRoomDisplay, getRoomSnapshot, getActiveTicketsForPush,
   listRooms, createRoom, updateRoom, assignRoom,
   // dùng cho test

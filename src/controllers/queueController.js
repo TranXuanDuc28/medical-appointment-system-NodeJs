@@ -39,6 +39,12 @@ const start = handle(async (req) => queue.startTicket({ ticketId: idOf(req), act
 const finish = handle(async (req) => queue.finishTicket({ ticketId: idOf(req), actor: actorOf(req) }));
 const noShow = handle(async (req) => queue.markNoShow({ ticketId: idOf(req), actor: actorOf(req) }));
 const postpone = handle(async (req) => queue.postpone({ ticketId: idOf(req), actor: actorOf(req) }));
+const transfer = handle(async (req) => {
+  const b = req.body || {};
+  const ticket = await queue.transferTicket({ ticketId: idOf(req), toDoctorId: b.toDoctorId ? Number(b.toDoctorId) : null, reason: b.reason, actor: actorOf(req) });
+  audit.log({ req, action: "QUEUE_TRANSFER", resource: "queue-ticket", resourceId: ticket.id, meta: { reason: b.reason, toDoctorId: ticket.doctorId } });
+  return ticket;
+});
 const cancel = handle(async (req) => queue.cancel({ ticketId: idOf(req), actor: actorOf(req) }));
 const emergency = handle(async (req) => {
   const ticket = await queue.emergency({ ticketId: idOf(req), reason: (req.body || {}).reason, actor: actorOf(req) });
@@ -57,6 +63,6 @@ const updateRoom = handle(async (req) => queue.updateRoom(idOf(req), req.body ||
 const assignRoom = handle(async (req) => queue.assignRoom(req.body || {}, actorOf(req)));
 
 module.exports = {
-  checkIn, walkIn, suggestWalkIn, heatmap, stats, callNext, call, start, finish, noShow, postpone, cancel, emergency,
+  checkIn, walkIn, suggestWalkIn, heatmap, stats, callNext, call, start, finish, noShow, transfer, postpone, cancel, emergency,
   doctorBoard, myTickets, roomDisplay, listRooms, createRoom, updateRoom, assignRoom,
 };

@@ -49,6 +49,7 @@ Quyền do bảng `accessRules` + RBAC quy định; kiểm tra chủ vé/bác s�
 | POST | `/walk-in` `{doctorId?, specialtyId?, clinicId?, fullName, phone?, priority?}` | `queue:walkin:create` | Đăng ký vãng lai. Có `doctorId`: xếp đúng bác sĩ đó. Không có: cần `specialtyId` và/hoặc `clinicId`, hệ thống **tự chọn bác sĩ đang trực chờ ngắn nhất** (xem "Cân bằng tải") |
 | GET | `/walk-in/suggest?specialtyId=&clinicId=&priority=` | `queue:walkin:create` hoặc `queue:rebalance` | Bảng tải các bác sĩ đang trực, xếp theo thời gian chờ dự kiến của một vé vãng lai mới; `recommendedDoctorId` là người được chọn |
 | GET | `/heatmap?date=&clinicId=` | `queue:rebalance` hoặc `analytics:read` | Bản đồ nhiệt các phòng (xem "Heatmap và thống kê") |
+| POST | `/tickets/:id/transfer` | `queue:rebalance` | Chuyển vé vãng lai sang phòng khác (body `{toDoctorId?, reason}`) |
 | GET | `/stats?from=&to=&clinicId=` | `analytics:read` hoặc `queue:rebalance` | Thống kê theo khoảng ngày (tối đa 92 ngày) |
 | POST | `/doctor/call-next` | `queue:call` | Gọi người đứng đầu hàng của bác sĩ |
 | GET | `/doctor/board?date=` | `queue:call` | Đang xử lý + hàng chờ (đã sắp, có ETA) + đã xong + thống kê |
@@ -133,3 +134,15 @@ Giới hạn: ước tính ứng viên dùng trung bình thực tế của từn
 - Ghi `queue_events` với `actor_user_id = NULL` và payload `{auto: true, timeoutMin, callCount}` để phân biệt với thao tác tay (cũng là dữ liệu cho thống kê vắng mặt).
 - Mỗi lần gọi lại (`calledAt` mới) thì đồng hồ chạy lại. An toàn khi chạy chồng nhiều tiến trình: khoá dòng vé rồi kiểm tra lại điều kiện.
 - Tắt: `NOSHOW_AUTO_ENABLED=false`. Nhả slot HOLD quá hạn xác nhận email do `startHoldSweeper` (bookingService) lo từ trước.
+
+
+## Chuyển vé giữa phòng
+
+`POST /api/queue/tickets/:id/transfer` body `{ "toDoctorId": 12, "reason": "Phòng 1 quá tải" }` (`toDoctorId` có thể bỏ trống). Quyền `queue:rebalance` (điều phối viên).
+
+- **Chỉ chuyển được** vé `WAITING` của hôm nay và là **bệnh nhân vãng lai**. Bệnh nhân đã đặt lịch theo bác sĩ không được tự ý chuyển (lỗi `NOT_ALLOWED`) để không mâu thuẫn với "đặt theo bác sĩ mong muốn".
+- **Đích:** cùng chuyên khoa với bác sĩ hiện tại và đang trực. Có `toDoctorId` thì chuyển đúng bác sĩ đó (lỗi `TARGET_UNAVAILABLE` nếu không trực). Bỏ trống thì hệ thống chọn bác sĩ chờ ngắn nhất, và chỉ chuyển nếu chờ **ít hơn** phòng hiện tại (không thì `NO_BETTER_ROOM`).
+- **Không mất lượt:** giữ nguyên giờ vào hàng, mức ưu tiên, `sortAt`. Chỉ đổi phòng/bác sĩ và cấp **số mới** ở phòng đích (số cũ ở phòng cũ không dùng lại). Lần gọi trước đó được xoá về 0.
+- **Nhật ký:** `queue_events` loại `TRANSFER`, payload gồm lý do (bắt buộc), phòng/số cũ và mới, thời gian chờ ước tính trước/sau, `assignedBy` (`AUTO`/`MANUAL`); cũng ghi `audit_logs` (`QUEUE_TRANSFER`).
+- **Realtime:** phát `QUEUE_UPDATED` cho cả phòng đích và phòng cũ (phòng cũ có `transferredOut: true`) để màn hình/bảng bác sĩ cả hai nơi cùng cập nhật.
+- **Chưa làm:** chuyển vé đã đặt lịch kèm sự đồng ý của bệnh nhân (đổi bác sĩ trong booking), và tự động chuyển khi phòng đỏ. Hiện điều phối viên thao tác tay dựa trên heatmap.

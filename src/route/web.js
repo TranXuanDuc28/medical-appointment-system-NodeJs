@@ -101,6 +101,7 @@ let initWebRoutes = (app) => {
   router.post("/api/queue/tickets/:id/start", queueController.start);
   router.post("/api/queue/tickets/:id/finish", queueController.finish);
   router.post("/api/queue/tickets/:id/no-show", queueController.noShow);
+  router.post("/api/queue/tickets/:id/transfer", queueController.transfer);
   router.post("/api/queue/tickets/:id/postpone", queueController.postpone);
   router.post("/api/queue/tickets/:id/emergency", queueController.emergency);
   router.post("/api/queue/tickets/:id/cancel", queueController.cancel);
