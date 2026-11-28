@@ -35,6 +35,7 @@ const EVENT = Object.freeze({
   EMERGENCY: "EMERGENCY",
   CANCEL: "CANCEL",
   REVIVE: "REVIVE",
+  TRANSFER: "TRANSFER",
 });
 
 /** Sự kiện -> các trạng thái nguồn hợp lệ. */
@@ -47,6 +48,7 @@ const FROM = Object.freeze({
   [EVENT.EMERGENCY]: [STATUS.WAITING],
   [EVENT.CANCEL]: [STATUS.WAITING],
   [EVENT.REVIVE]: [STATUS.CANCELLED],
+  [EVENT.TRANSFER]: [STATUS.WAITING],
 });
 
 const ACTIVE_STATUSES = [STATUS.WAITING, STATUS.CALLED, STATUS.IN_PROGRESS];
