@@ -24,6 +24,7 @@ import { startHoldSweeper } from "./services/bookingService";
 import { syncRbac } from "./services/rbacService";
 import { purgeExpired } from "./services/tokenService";
 import { startReminderScheduler } from "./services/reminderScheduler";
+import { startAutoNoShow } from "./services/queue/autoNoShowScheduler";
 
 let app = express();
 
@@ -71,6 +72,7 @@ connectDB().then(async () => {
     purgeExpired().catch(() => {});
     setInterval(() => purgeExpired().catch(() => {}), 24 * 3600 * 1000).unref();
     startReminderScheduler().catch((e) => console.error("❌ Không khởi động được nhắc hẹn:", e.message));
+    startAutoNoShow();
   } catch (e) {
     console.error(
       "❌ Không đồng bộ được RBAC. Đã chạy migration chưa? (npx sequelize-cli db:migrate):",
