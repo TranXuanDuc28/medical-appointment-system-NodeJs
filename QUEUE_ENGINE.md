@@ -122,3 +122,14 @@ Giới hạn: ước tính ứng viên dùng trung bình thực tế của từn
 - Frontend nên **tải lại khi nhận socket `QUEUE_UPDATED` / `DOCTOR_QUEUE_UPDATED`** (hoặc poll ~15s) thay vì giữ kết nối riêng.
 
 **`GET /api/queue/stats?from=&to=&clinicId=`** — mặc định hôm nay; tối đa 92 ngày; trả `totals`, `byDay[]`, `byDoctor[]` (top 50) với: `total`, `done`, `noShow`, `cancelled`, `booked`, `walkIn`, `emergency`, `elderly`, `noShowRate` (%, = vắng / (khám + vắng), `null` nếu chưa có kết cục), `avgWaitMin`, `avgExamMin`. Sai ngày/khoảng quá dài → 400.
+
+
+## Tự đánh vắng mặt
+
+`queueService.autoNoShow()` + `autoNoShowScheduler.js` (quét mỗi `NOSHOW_SCAN_SECONDS`, mặc định 60s).
+
+- Vé **CALLED** mà `calledAt` cũ hơn `NOSHOW_TIMEOUT_MIN` phút (mặc định 10) -> hệ thống tự đánh vắng mặt. Vé CALLED chiếm bác sĩ (`DOCTOR_BUSY`), nên nếu bệnh nhân không đến và bác sĩ quên bấm thì cả phòng bị kẹt.
+- Cùng quy tắc với bác sĩ bấm tay: **lần 1 xếp lại cuối hàng** (`NO_SHOW_REQUEUE`), **lần 2 kết thúc** (`NO_SHOW`) và huỷ lịch hẹn, nhả khung giờ. Khác ở chỗ không cần đủ 3 lần gọi.
+- Ghi `queue_events` với `actor_user_id = NULL` và payload `{auto: true, timeoutMin, callCount}` để phân biệt với thao tác tay (cũng là dữ liệu cho thống kê vắng mặt).
+- Mỗi lần gọi lại (`calledAt` mới) thì đồng hồ chạy lại. An toàn khi chạy chồng nhiều tiến trình: khoá dòng vé rồi kiểm tra lại điều kiện.
+- Tắt: `NOSHOW_AUTO_ENABLED=false`. Nhả slot HOLD quá hạn xác nhận email do `startHoldSweeper` (bookingService) lo từ trước.

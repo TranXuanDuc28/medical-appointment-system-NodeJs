@@ -415,6 +415,33 @@ const finishTicket = ({ ticketId, actor }) =>
  *  - Lần đầu: xếp lại cuối hàng (WAITING), cho bệnh nhân thêm một cơ hội.
  *  - Lần hai: kết thúc (NO_SHOW) và huỷ lịch hẹn (nhả khung giờ).
  */
+/** Phần lõi đánh vắng mặt (dùng chung cho bác sĩ bấm tay và tự động): lần 1 xếp lại cuối hàng, lần 2 kết thúc + huỷ lịch hẹn. */
+const applyNoShow = async (ticket, actor, t, payload = {}) => {
+  const requeued = await db.QueueEvent.count({ where: { ticketId: ticket.id, eventType: EVENT.NO_SHOW_REQUEUE }, transaction: t });
+  if (requeued === 0) {
+    const sortAt = new Date();
+    await ticket.update({ status: STATUS.WAITING, callCount: 0, calledAt: null, sortAt }, { transaction: t });
+    await logEvent(ticket.id, EVENT.NO_SHOW_REQUEUE, actor, { sortAt, ...payload }, t);
+    return { ticket, extra: { requeued: true } };
+  }
+  await ticket.update({ status: STATUS.NO_SHOW }, { transaction: t });
+  await logEvent(ticket.id, EVENT.NO_SHOW, actor, { final: true, ...payload }, t);
+  const bookingId = ticket.bookingId;
+  return {
+    ticket,
+    extra: {
+      postCommit: async () => {
+        if (!bookingId) return;
+        try {
+          await require("../bookingService").cancelBookingById(bookingId, { force: true, reason: "NO_SHOW" });
+        } catch (e) {
+          console.error("[Queue] không huỷ được lịch hẹn sau NO_SHOW:", e.message);
+        }
+      },
+    },
+  };
+};
+
 const markNoShow = ({ ticketId, actor }) =>
   run(async (t) => {
     const ticket = await lockTicket(ticketId, t);
@@ -423,30 +450,40 @@ const markNoShow = ({ ticketId, actor }) =>
     if (ticket.callCount < CONFIG.MAX_CALLS) {
       throw new QueueError("NOT_ENOUGH_CALLS", `Cần gọi tối thiểu ${CONFIG.MAX_CALLS} lần (đã gọi ${ticket.callCount})`, 409);
     }
-    const requeued = await db.QueueEvent.count({ where: { ticketId: ticket.id, eventType: EVENT.NO_SHOW_REQUEUE }, transaction: t });
-    if (requeued === 0) {
-      const sortAt = new Date();
-      await ticket.update({ status: STATUS.WAITING, callCount: 0, calledAt: null, sortAt }, { transaction: t });
-      await logEvent(ticket.id, EVENT.NO_SHOW_REQUEUE, actor, { sortAt }, t);
-      return { ticket, extra: { requeued: true } };
-    }
-    await ticket.update({ status: STATUS.NO_SHOW }, { transaction: t });
-    await logEvent(ticket.id, EVENT.NO_SHOW, actor, { final: true }, t);
-    const bookingId = ticket.bookingId;
-    return {
-      ticket,
-      extra: {
-        postCommit: async () => {
-          if (!bookingId) return;
-          try {
-            await require("../bookingService").cancelBookingById(bookingId, { force: true, reason: "NO_SHOW" });
-          } catch (e) {
-            console.error("[Queue] không huỷ được lịch hẹn sau NO_SHOW:", e.message);
-          }
-        },
-      },
-    };
+    return applyNoShow(ticket, actor, t);
   }, { event: EVENT.NO_SHOW });
+
+/**
+ * Tự đánh vắng mặt: vé đang CALLED quá `timeoutMin` phút kể từ lần gọi gần nhất mà bác sĩ không xử lý
+ * (bệnh nhân không đến, bác sĩ quên bấm) -> coi như vắng mặt, giải phóng bác sĩ.
+ * Không cần đủ MAX_CALLS (đó là ràng buộc cho thao tác tay). Ghi payload {auto:true, timeoutMin}, actor = null (hệ thống).
+ * An toàn khi nhiều tiến trình chạy chồng: khoá dòng vé rồi kiểm tra lại điều kiện trước khi đổi.
+ */
+const autoNoShow = async ({ now = new Date(), timeoutMin = CONFIG.AUTO_NOSHOW_MIN } = {}) => {
+  const cutoff = new Date(now.getTime() - timeoutMin * 60 * 1000);
+  const stale = await db.QueueTicket.findAll({
+    where: { status: STATUS.CALLED, calledAt: { [Op.lt]: cutoff } }, attributes: ["id"], raw: true,
+  });
+  const out = { checked: stale.length, requeued: 0, noShow: 0, skipped: 0 };
+  for (const { id } of stale) {
+    try {
+      await run(async (t) => {
+        const ticket = await lockTicket(id, t);
+        if (ticket.status !== STATUS.CALLED || !ticket.calledAt || new Date(ticket.calledAt) >= cutoff) {
+          out.skipped += 1; // bác sĩ vừa xử lý/gọi lại trong lúc chờ khoá
+          return { ticket };
+        }
+        const r = await applyNoShow(ticket, null, t, { auto: true, timeoutMin, callCount: ticket.callCount });
+        if (r.extra.requeued) out.requeued += 1; else out.noShow += 1;
+        return r;
+      }, { event: EVENT.NO_SHOW });
+    } catch (e) {
+      out.skipped += 1;
+      console.error(`[Queue] tự đánh vắng mặt vé ${id} lỗi:`, e.message);
+    }
+  }
+  return out;
+};
 
 /* ------------------------------ ghi: bệnh nhân / lễ tân ------------------------------ */
 
@@ -686,7 +723,7 @@ const assignRoom = async ({ doctorId, date, roomId }, actor) => {
 };
 
 module.exports = {
-  checkIn, createWalkIn, suggestWalkInDoctors, callTicket, callNext, startTicket, finishTicket, markNoShow, postpone, emergency, cancel,
+  checkIn, createWalkIn, suggestWalkInDoctors, callTicket, callNext, startTicket, finishTicket, markNoShow, autoNoShow, postpone, emergency, cancel,
   getTicket, getDoctorBoard, getMyTickets, getRoomDisplay, getRoomSnapshot, getActiveTicketsForPush,
   listRooms, createRoom, updateRoom, assignRoom,
   // dùng cho test

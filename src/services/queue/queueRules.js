@@ -52,6 +52,7 @@ const FROM = Object.freeze({
 const ACTIVE_STATUSES = [STATUS.WAITING, STATUS.CALLED, STATUS.IN_PROGRESS];
 
 const CONFIG = Object.freeze({
+  AUTO_NOSHOW_MIN: Math.max(1, Number(process.env.NOSHOW_TIMEOUT_MIN) || 10), // vé CALLED quá số phút này mà không ai xử lý => tự đánh vắng mặt
   MAX_CALLS: 3, // phải gọi đủ số lần này mới được đánh vắng mặt
   MAX_POSTPONE: 2, // số lần bệnh nhân được xin dời lượt
   POSTPONE_AHEAD: 2, // mỗi lần dời: nhường cho 2 người đứng sau
