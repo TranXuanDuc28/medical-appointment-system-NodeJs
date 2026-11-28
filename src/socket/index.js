@@ -9,6 +9,8 @@ const {
   sendPayment,
 } = require("../services/doctorServices");
 const { postBookAppointmentServices } = require("../services/patientServices");
+const { registerQueueBroadcast, bindQueueEvents } = require("./queueSocket");
+const { bus, NOTIFIED } = require("../utils/queueBus");
 
 const AUTHED_ROOM = "authed";
 
@@ -50,6 +52,9 @@ let socketInit = (app, server) => {
 
   // Make io accessible in controllers
   app.set("socketio", io);
+  registerQueueBroadcast(io); // đẩy sự kiện hàng đợi (TV, bác sĩ, bệnh nhân) sau mỗi lần commit
+  // Thông báo mới -> NOTIFICATION_NEW tới mọi tab/thiết bị đang mở của người nhận (cập nhật chuông, không cần tải lại)
+  bus.on(NOTIFIED, ({ userId, notification }) => io.to(`user:${userId}`).emit("NOTIFICATION_NEW", { notification }));
 
   // Xác thực JWT khi handshake. Khách (chưa đăng nhập) vẫn kết nối được để xem/đặt slot
   // nhưng không dùng được các sự kiện cần danh tính (chat, thanh toán...).
@@ -83,6 +88,7 @@ let socketInit = (app, server) => {
       return true;
     };
     const bookLimiter = makeLimiter(5, 60 * 1000);
+    bindQueueEvents(socket, () => requireAuth());
 
     if (socket.user) {
       socket.join(`user:${socket.user.id}`);

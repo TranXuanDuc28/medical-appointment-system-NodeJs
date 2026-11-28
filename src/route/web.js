@@ -14,10 +14,13 @@ import handbookController from "../controllers/handbookController";
 import questionController from "../controllers/questionController";
 import { cacheMiddleware, invalidateCache } from "../utils/redis";
 import rbacController from "../controllers/rbacController";
+import queueController from "../controllers/queueController";
+import aiController from "../controllers/aiController";
+import notificationController from "../controllers/notificationController";
 import { selfOrPermission, doctorSelf } from "../middleware/ownership";
 import { medicalRecordPolicy, appointmentReadPolicy } from "../middleware/policies";
 import { P } from "../config/permissions";
-import { authLimiter, bookingLimiter } from "../middleware/rateLimit";
+import { authLimiter, bookingLimiter, aiLimiter } from "../middleware/rateLimit";
 const multer = require("multer");
 const path = require("path");
 const slugify = require("slugify");
@@ -29,13 +32,15 @@ const storage = multer.diskStorage({
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    // Tiền tố u<id>-: ghi nhận người tải lên để họ luôn xem lại được file của mình (xem middleware/uploadAccess.js)
+    const owner = req.user && req.user.id ? `u${req.user.id}-` : "";
     // Loại bỏ ký tự đặc biệt khỏi tên file khi lưu
     const safeName = slugify(file.originalname, {
       lower: false,
       strict: true,
       locale: "vi",
     });
-    cb(null, uniqueSuffix + "-" + safeName);
+    cb(null, owner + uniqueSuffix + "-" + safeName);
   },
 });
 const ALLOWED_UPLOAD_TYPES = [
@@ -75,6 +80,36 @@ let initWebRoutes = (app) => {
   }
   // API routes (quyền truy cập được áp dụng tập trung bởi middleware accessControl
   // dựa trên config/accessRules.js; ở đây chỉ thêm kiểm tra sở hữu dữ liệu)
+  // AI: gợi ý chuyên khoa (công khai, có giới hạn tần suất) + giám sát/đối sánh (ai-metrics:read)
+  router.post("/api/ai/triage", aiLimiter, aiController.triage);
+  router.get("/api/ai/status", aiController.status);
+  router.get("/api/ai/metrics", aiController.metrics);
+  // Thông báo của chính người dùng (nhắc hẹn, sắp đến lượt...)
+  router.get("/api/notifications", notificationController.list);
+  router.get("/api/notifications/unread-count", notificationController.unreadCount);
+  router.post("/api/notifications/read-all", notificationController.markAllRead);
+  router.post("/api/notifications/:id/read", notificationController.markRead);
+  // Hàng đợi khám bệnh (quyền kiểm bởi accessControl theo accessRules + kiểm tra chủ vé/bác sĩ trong queueService)
+  router.post("/api/queue/check-in", queueController.checkIn);
+  router.post("/api/queue/walk-in", queueController.walkIn);
+  router.get("/api/queue/walk-in/suggest", queueController.suggestWalkIn);
+  router.get("/api/queue/heatmap", queueController.heatmap);
+  router.get("/api/queue/stats", queueController.stats);
+  router.post("/api/queue/doctor/call-next", queueController.callNext);
+  router.get("/api/queue/doctor/board", queueController.doctorBoard);
+  router.post("/api/queue/tickets/:id/call", queueController.call);
+  router.post("/api/queue/tickets/:id/start", queueController.start);
+  router.post("/api/queue/tickets/:id/finish", queueController.finish);
+  router.post("/api/queue/tickets/:id/no-show", queueController.noShow);
+  router.post("/api/queue/tickets/:id/postpone", queueController.postpone);
+  router.post("/api/queue/tickets/:id/emergency", queueController.emergency);
+  router.post("/api/queue/tickets/:id/cancel", queueController.cancel);
+  router.get("/api/queue/my-tickets", queueController.myTickets);
+  router.get("/api/queue/rooms/:roomId/display", queueController.roomDisplay);
+  router.get("/api/queue/rooms", queueController.listRooms);
+  router.post("/api/queue/rooms", queueController.createRoom);
+  router.put("/api/queue/rooms/:id", queueController.updateRoom);
+  router.put("/api/queue/assign-room", queueController.assignRoom);
   // RBAC & audit (quyền kiểm bởi accessControl theo accessRules)
   router.get("/api/rbac/me", rbacController.me);
   router.get("/api/rbac/roles", rbacController.listRoles);

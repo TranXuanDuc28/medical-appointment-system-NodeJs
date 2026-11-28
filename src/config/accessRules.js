@@ -24,6 +24,11 @@ module.exports = {
     ["POST", "/api/refresh-token", PUBLIC],
     ["POST", "/api/login-patient-chat", PUBLIC],
     ["POST", "/api/save-fcm-token", AUTH], // chính chủ hoặc user:update (kiểm ở route)
+    // ---- Thông báo (luôn chỉ của chính người dùng đăng nhập) ----
+    ["GET", "/api/notifications", AUTH],
+    ["GET", "/api/notifications/unread-count", AUTH],
+    ["POST", "/api/notifications/read-all", AUTH],
+    ["POST", "/api/notifications/:id/read", AUTH],
 
     // ---- Quản lý người dùng & vai trò ----
     ["GET", "/api/get_all_users", AUTH], // id=ALL cần user:read:any, id khác chỉ chính chủ
@@ -64,13 +69,41 @@ module.exports = {
     ["POST", "/api/update-medical-appointment-status", [P.PRESCRIPTION_CREATE]],
     ["GET", "/api/get-medicines", [P.MEDICINE_READ]],
 
+    // ---- AI ----
+    ["POST", "/api/ai/triage", PUBLIC],
+    ["GET", "/api/ai/status", [P.AI_METRICS_READ]],
+    ["GET", "/api/ai/metrics", [P.AI_METRICS_READ]],
+
+    // ---- Hàng đợi (quyền chi tiết + kiểm tra chủ vé/bác sĩ nằm trong queueService) ----
+    ["POST", "/api/queue/check-in", AUTH], // nhân viên có queue:checkin hoặc chính bệnh nhân đặt lịch
+    ["POST", "/api/queue/walk-in", [P.QUEUE_WALKIN_CREATE]],
+    ["GET", "/api/queue/walk-in/suggest", [P.QUEUE_WALKIN_CREATE, P.QUEUE_REBALANCE]],
+    ["GET", "/api/queue/heatmap", [P.QUEUE_REBALANCE, P.ANALYTICS_READ]],
+    ["GET", "/api/queue/stats", [P.ANALYTICS_READ, P.QUEUE_REBALANCE]],
+    ["POST", "/api/queue/doctor/call-next", [P.QUEUE_CALL]],
+    ["GET", "/api/queue/doctor/board", [P.QUEUE_CALL]],
+    ["POST", "/api/queue/tickets/:id/call", [P.QUEUE_CALL]],
+    ["POST", "/api/queue/tickets/:id/start", [P.QUEUE_START]],
+    ["POST", "/api/queue/tickets/:id/finish", [P.QUEUE_FINISH]],
+    ["POST", "/api/queue/tickets/:id/no-show", [P.QUEUE_NOSHOW]],
+    ["POST", "/api/queue/tickets/:id/postpone", AUTH], // chủ vé hoặc queue:checkin
+    ["POST", "/api/queue/tickets/:id/emergency", [P.QUEUE_EMERGENCY]],
+    ["POST", "/api/queue/tickets/:id/cancel", AUTH], // chủ vé hoặc queue:checkin
+    ["GET", "/api/queue/my-tickets", AUTH],
+    ["GET", "/api/queue/rooms/:roomId/display", [P.QUEUE_DISPLAY_READ, P.QUEUE_CALL, P.QUEUE_CHECKIN, P.QUEUE_REBALANCE]],
+    ["GET", "/api/queue/rooms", [P.QUEUE_CHECKIN, P.QUEUE_CALL, P.QUEUE_REBALANCE, P.ROOM_MANAGE]],
+    ["POST", "/api/queue/rooms", [P.ROOM_MANAGE]],
+    ["PUT", "/api/queue/rooms/:id", [P.ROOM_MANAGE]],
+    ["PUT", "/api/queue/assign-room", [P.ROOM_MANAGE]],
+
     // ---- Thanh toán ----
     ["GET", "/api/check-paid", [P.PAYMENT_READ]],
     ["POST", "/api/send-payment", [P.PAYMENT_CONFIRM]],
     // Webhook: tự xác thực bằng chữ ký/token trong controller
     ["POST", "/api/payos/webhook", PUBLIC],
     ["POST", "/api/casso/webhook", PUBLIC],
-    ["POST", "/api/payos/create-payment-link", PUBLIC],
+    // Chỉ thu ngân/nhân viên có quyền xác nhận thanh toán; số tiền do server lấy từ hoá đơn, không nhận từ client
+    ["POST", "/api/payos/create-payment-link", [P.PAYMENT_CONFIRM]],
 
     // ---- Chat / upload ----
     ["GET", "/api/get-msg/:receiverId", AUTH],
