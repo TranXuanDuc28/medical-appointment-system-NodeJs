@@ -747,13 +747,15 @@ let getListGDPR = () => {
   });
 };
 
-const PAYABLE_STATUSES = ["S2", "S3", "S6"];
+// Chỉ lịch ĐÃ KHÁM xong (S3 chờ thu ngân / S6 chưa thanh toán) mới nhận thanh toán online.
+// S2 (chưa khám) không có hoá đơn nên không được phép: nếu không, ai chuyển 1.000đ với nội dung BOOKING<id> cũng khiến lịch bị đánh dấu "đã thanh toán".
+const PAYABLE_STATUSES = ["S3", "S6"];
 
 /**
  * Ghi nhận thanh toán online cho booking (PayOS/Casso). IDEMPOTENT:
  *  - cùng gatewayRef (UNIQUE) đã xử lý => 'duplicate', không làm gì thêm;
  *  - booking đã S5 và đã có Payment đã trả => 'duplicate'.
- * Trả { status: 'ok' | 'duplicate' | 'not_found' | 'invalid_state' | 'amount_mismatch' }.
+ * Trả { status: 'ok' | 'duplicate' | 'not_found' | 'invalid_state' | 'no_invoice' | 'amount_mismatch' }.
  */
 let updateBookingPaymentStatus = async (bookingId, amount, transactionDateTime, io, gatewayRef) => {
   const id = Number(bookingId);
@@ -782,8 +784,9 @@ let updateBookingPaymentStatus = async (bookingId, amount, transactionDateTime, 
       if (booking.statusId === "S5" && exist && exist.paidAt) return { status: "duplicate" };
       if (!PAYABLE_STATUSES.includes(booking.statusId)) return { status: "invalid_state", current: booking.statusId };
 
-      // Số tiền thực nhận phải đủ số tiền hoá đơn đã lập
-      if (exist && Number(exist.amount) > 0 && paidAmount < Number(exist.amount)) {
+      // BẮT BUỘC có hoá đơn (do bác sĩ lập khi kê đơn) và số tiền thực nhận phải đủ hoá đơn đó
+      if (!exist || !(Number(exist.amount) > 0)) return { status: "no_invoice" };
+      if (paidAmount < Number(exist.amount)) {
         return { status: "amount_mismatch", expected: Number(exist.amount), got: paidAmount };
       }
 
@@ -815,7 +818,11 @@ let updateBookingPaymentStatus = async (bookingId, amount, transactionDateTime, 
     if (e && e.name === "SequelizeUniqueConstraintError") return { status: "duplicate" };
     throw e;
   }
-  if (result.status !== "ok") return result;
+  if (result.status !== "ok") {
+    // Tiền có thể đã vào tài khoản nhưng không ghi nhận được: log để đối soát thủ công
+    if (result.status !== "duplicate") console.warn(`⚠️ [Payment] Không ghi nhận thanh toán booking ${id} (${result.status}), số tiền ${paidAmount}, ref ${ref}`);
+    return result;
+  }
 
   const patient = result.patient;
   const patientName = patient ? `${patient.firstName || ""} ${patient.lastName || ""}`.trim() : "";
@@ -879,6 +886,7 @@ const REASON_MESSAGES = {
   not_found: (id) => `Booking ${id} not found`,
   invalid_state: (id) => `Booking ${id} is not in a payable state`,
   amount_mismatch: (id) => `Amount for booking ${id} is lower than the invoice`,
+  no_invoice: (id) => `Booking ${id} has no invoice to pay`,
 };
 
 // Get all payment and update booking status (Hỗ trợ PayOS và Casso Webhook)
@@ -946,30 +954,43 @@ let createPayOSPaymentLink = (data) => {
         });
       }
 
-      if (!data.bookingId || !data.amount) {
-        return resolve({
-          errCode: 1,
-          errMessage: "Missing required parameters: bookingId or amount",
-        });
+      const idNum = Number(data && data.bookingId);
+      if (!Number.isSafeInteger(idNum) || idNum <= 0) {
+        return resolve({ errCode: 1, errMessage: "Missing required parameters: bookingId" });
       }
 
-      const { bookingId, amount, description } = data;
+      // Số tiền LẤY TỪ HOÁ ĐƠN trong DB (do bác sĩ lập), không tin giá trị client gửi lên
+      const booking = await db.Booking.findOne({ where: { id: idNum }, attributes: ["id", "statusId"], raw: true });
+      if (!booking) return resolve({ errCode: 3, errMessage: "Không tìm thấy lịch hẹn" });
+      if (booking.statusId === "S5") return resolve({ errCode: 4, errMessage: "Lịch hẹn này đã được thanh toán" });
+      if (!PAYABLE_STATUSES.includes(booking.statusId)) {
+        return resolve({ errCode: 4, errMessage: "Lịch hẹn chưa khám xong nên chưa thể thanh toán" });
+      }
+      const invoice = await db.Payment.findOne({ where: { bookingId: idNum }, attributes: ["amount"], raw: true });
+      const invoiceAmount = invoice ? Number(invoice.amount) : 0;
+      if (!(invoiceAmount > 0)) return resolve({ errCode: 4, errMessage: "Lịch hẹn chưa có hoá đơn" });
+
+      const bookingId = idNum;
+      const amount = invoiceAmount;
       // orderCode phải là số <= 9007199254740991 và duy nhất cho mỗi link.
       // Booking id giờ là số nguyên: orderCode = id * 1e6 + 6 chữ số ngẫu nhiên (suy ra được booking, vẫn không trùng khi tạo lại link).
-      const idNum = Number(bookingId);
       const suffix = Math.floor(100000 + Math.random() * 900000);
       const orderCode =
-        Number.isSafeInteger(idNum) && idNum > 0 && idNum * 1e6 + suffix <= Number.MAX_SAFE_INTEGER
+        idNum * 1e6 + suffix <= Number.MAX_SAFE_INTEGER
           ? idNum * 1e6 + suffix
           : Number(String(Date.now()).slice(-6) + Math.floor(1000 + Math.random() * 9000));
-      const desc = (description || `BOOKING${bookingId}`).slice(0, 25);
+      // Nội dung cố định BOOKING<id> (webhook dựa vào đây để biết booking), không nhận từ client
+      const desc = `BOOKING${bookingId}`.slice(0, 25);
 
-      const returnUrl = data.returnUrl || `${process.env.URL_REACT || "http://localhost:3000"}/payment-success`;
-      const cancelUrl = data.cancelUrl || `${process.env.URL_REACT || "http://localhost:3000"}/payment-cancel`;
+      // returnUrl/cancelUrl chỉ nhận địa chỉ thuộc frontend của hệ thống (chống chuyển hướng sang trang lạ)
+      const front = String(process.env.URL_REACT || "http://localhost:3000").replace(/\/+$/, "");
+      const safeUrl = (u, fallback) => (typeof u === "string" && (u === front || u.startsWith(front + "/")) ? u : fallback);
+      const returnUrl = safeUrl(data.returnUrl, `${front}/payment-success`);
+      const cancelUrl = safeUrl(data.cancelUrl, `${front}/payment-cancel`);
 
       const paymentBody = {
         orderCode: orderCode,
-        amount: Number(amount) || 10000,
+        amount: amount,
         description: desc,
         cancelUrl: cancelUrl,
         returnUrl: returnUrl,

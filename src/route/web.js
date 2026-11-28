@@ -31,13 +31,15 @@ const storage = multer.diskStorage({
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    // Tiền tố u<id>-: ghi nhận người tải lên để họ luôn xem lại được file của mình (xem middleware/uploadAccess.js)
+    const owner = req.user && req.user.id ? `u${req.user.id}-` : "";
     // Loại bỏ ký tự đặc biệt khỏi tên file khi lưu
     const safeName = slugify(file.originalname, {
       lower: false,
       strict: true,
       locale: "vi",
     });
-    cb(null, uniqueSuffix + "-" + safeName);
+    cb(null, owner + uniqueSuffix + "-" + safeName);
   },
 });
 const ALLOWED_UPLOAD_TYPES = [
@@ -84,6 +86,7 @@ let initWebRoutes = (app) => {
   // Hàng đợi khám bệnh (quyền kiểm bởi accessControl theo accessRules + kiểm tra chủ vé/bác sĩ trong queueService)
   router.post("/api/queue/check-in", queueController.checkIn);
   router.post("/api/queue/walk-in", queueController.walkIn);
+  router.get("/api/queue/walk-in/suggest", queueController.suggestWalkIn);
   router.post("/api/queue/doctor/call-next", queueController.callNext);
   router.get("/api/queue/doctor/board", queueController.doctorBoard);
   router.post("/api/queue/tickets/:id/call", queueController.call);

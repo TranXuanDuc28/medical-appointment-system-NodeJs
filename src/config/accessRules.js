@@ -72,6 +72,7 @@ module.exports = {
     // ---- Hàng đợi (quyền chi tiết + kiểm tra chủ vé/bác sĩ nằm trong queueService) ----
     ["POST", "/api/queue/check-in", AUTH], // nhân viên có queue:checkin hoặc chính bệnh nhân đặt lịch
     ["POST", "/api/queue/walk-in", [P.QUEUE_WALKIN_CREATE]],
+    ["GET", "/api/queue/walk-in/suggest", [P.QUEUE_WALKIN_CREATE, P.QUEUE_REBALANCE]],
     ["POST", "/api/queue/doctor/call-next", [P.QUEUE_CALL]],
     ["GET", "/api/queue/doctor/board", [P.QUEUE_CALL]],
     ["POST", "/api/queue/tickets/:id/call", [P.QUEUE_CALL]],
@@ -94,7 +95,8 @@ module.exports = {
     // Webhook: tự xác thực bằng chữ ký/token trong controller
     ["POST", "/api/payos/webhook", PUBLIC],
     ["POST", "/api/casso/webhook", PUBLIC],
-    ["POST", "/api/payos/create-payment-link", PUBLIC],
+    // Chỉ thu ngân/nhân viên có quyền xác nhận thanh toán; số tiền do server lấy từ hoá đơn, không nhận từ client
+    ["POST", "/api/payos/create-payment-link", [P.PAYMENT_CONFIRM]],
 
     // ---- Chat / upload ----
     ["GET", "/api/get-msg/:receiverId", AUTH],
