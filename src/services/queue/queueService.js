@@ -42,11 +42,21 @@ const currentShift = (now = new Date()) => {
 /** Thông tin khung giờ từ reference_codes.meta ({start,end,shift}). */
 // Gọi trong transaction thì PHẢI truyền `t`: không có thì truy vấn xin thêm 1 connection trong khi transaction đang giữ 1 cái;
 // nhiều yêu cầu đồng thời > kích thước pool sẽ chờ nhau đến hết hạn (deadlock cạn pool, phát hiện bằng scripts/load-queue.js).
-const slotInfo = async (timeCode, workDate, t) => {
+// Cấu hình khung giờ (reference_codes.meta) gần như bất biến: nhớ 60 giây để mỗi lần check-in không phải đọc lại.
+const SLOT_META_TTL_MS = 60 * 1000;
+const slotMetaCache = new Map();
+const slotMeta = async (timeCode, t) => {
+  const hit = slotMetaCache.get(timeCode);
+  if (hit && hit.expires > Date.now()) return hit.meta;
   const row = await db.AllCode.findOne({ where: { keyMap: timeCode }, attributes: ["meta"], raw: true, transaction: t });
   let meta = row && row.meta;
   if (typeof meta === "string") meta = JSON.parse(meta);
   if (!meta || !meta.start) throw new QueueError("BAD_SLOT", `Khung giờ ${timeCode} chưa có cấu hình giờ (meta.start)`, 500);
+  slotMetaCache.set(timeCode, { meta, expires: Date.now() + SLOT_META_TTL_MS });
+  return meta;
+};
+const slotInfo = async (timeCode, workDate, t) => {
+  const meta = await slotMeta(timeCode, t);
   return { shift: meta.shift || (Number(meta.start.slice(0, 2)) < 12 ? "MORNING" : "AFTERNOON"), slotStart: new Date(`${workDate}T${meta.start}:00+07:00`) };
 };
 
@@ -149,11 +159,36 @@ const lockDoctorAndAssertFree = async (ticket, t, { allowCalledSame = false } = 
 
 const waitingOrder = [[literal("(priority = 'EMERGENCY')"), "DESC"], ["sortAt", "ASC"], ["id", "ASC"]];
 
-const afterCommit = (ticket, event, extra = {}) =>
-  emitChanged({
+/**
+ * Phiên bản dữ liệu hàng đợi theo (bác sĩ, ngày): tăng mỗi khi có thay đổi đã commit.
+ * Dùng để chỉ gộp các lần tính ETA ĐANG CHẠY cùng phiên bản (xem etaForDoctor), không bao giờ dùng lại kết quả cũ.
+ */
+const etaVersions = new Map();
+const etaInflight = new Map();
+const etaKey = (doctorId, ticketDate) => `${Number(doctorId)}:${ticketDate}`;
+const bumpEtaVersion = (doctorId, ticketDate) => {
+  const k = etaKey(doctorId, ticketDate);
+  etaVersions.set(k, (etaVersions.get(k) || 0) + 1);
+};
+
+/** Việc nền (ghi dự đoán AI...): chạy NỐI TIẾP từng việc, không tranh kết nối DB/CPU với các yêu cầu của người dùng khi bão check-in. */
+let backgroundChain = Promise.resolve();
+let activeRuns = 0; // số thao tác của người dùng đang chạy: việc nền nhường chỗ cho chúng (tối đa 5 giây mỗi lần)
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const yieldToForeground = async () => {
+  for (let waited = 0; activeRuns > 0 && waited < 5000; waited += 50) await sleep(50);
+};
+const runInBackground = (label, fn) => {
+  backgroundChain = backgroundChain.then(async () => { await yieldToForeground(); return fn(); }).catch((err) => console.error(`[Queue] việc nền "${label}" lỗi:`, err.message));
+};
+
+const afterCommit = (ticket, event, extra = {}) => {
+  bumpEtaVersion(ticket.doctorId, ticket.ticketDate); // gồm cả bác sĩ/phòng CŨ khi chuyển vé
+  return emitChanged({
     event, ticketId: Number(ticket.id), roomId: Number(ticket.roomId), doctorId: Number(ticket.doctorId),
     ticketDate: ticket.ticketDate, shift: ticket.shift, status: ticket.status, ...extra,
   });
+};
 
 const patientUserIdOf = async (ticket) => {
   if (!ticket.bookingId) return null;
@@ -162,7 +197,16 @@ const patientUserIdOf = async (ticket) => {
 };
 
 /** Chạy thao tác trong transaction, commit rồi phát sự kiện + trả vé đã serialize (kèm ETA). */
-const run = async (fn, { event }) => {
+const run = async (fn, opts) => {
+  activeRuns++;
+  try {
+    return await runOnce(fn, opts);
+  } finally {
+    activeRuns--;
+  }
+};
+
+const runOnce = async (fn, { event }) => {
   const t = await newTransaction();
   let ticket;
   let extra = {};
@@ -175,15 +219,17 @@ const run = async (fn, { event }) => {
     try { await t.rollback(); } catch (_) { /* đã rollback */ }
     throw e;
   }
+  bumpEtaVersion(ticket.doctorId, ticket.ticketDate);
   const { postCommit, ...publicExtra } = extra; // hàm postCommit không đưa vào payload sự kiện
-  const patientUserId = await patientUserIdOf(ticket);
+  // thao tác biết sẵn chủ vé (đã đọc booking trong giao dịch) thì khỏi truy vấn lại
+  const patientUserId = publicExtra.patientUserId !== undefined ? publicExtra.patientUserId : await patientUserIdOf(ticket);
   afterCommit(ticket, event, { patientUserId, ...publicExtra });
   if (typeof postCommit === "function") await postCommit();
   // Ghi nhận dữ liệu đối sánh AI: dự đoán lúc vào hàng, kết quả thực tế lúc khám xong (best-effort, không ảnh hưởng thao tác chính)
   if ((event === EVENT.CHECK_IN || event === EVENT.WALK_IN) && !publicExtra.idempotent) {
-    etaDetail(ticket.id).then((e) => e && aiPredictions.recordInitial(e)).catch((err) => console.error("[AI] không ghi được dự đoán:", err.message));
+    runInBackground("ai-initial", () => etaDetail(ticket.id).then((e) => e && aiPredictions.recordInitial(e)));
   } else if (event === EVENT.FINISH) {
-    aiPredictions.recordActual(ticket.id).catch((err) => console.error("[AI] không ghi được kết quả thực tế:", err.message));
+    runInBackground("ai-actual", () => aiPredictions.recordActual(ticket.id));
   }
   return getTicket(ticket.id);
 };
@@ -209,12 +255,12 @@ const checkIn = async ({ bookingId, actor }) =>
     const sortAt = computeSortAt({ source: "BOOKED", slotStart, checkInAt: now, priority });
 
     if (existing) {
-      if (ACTIVE_STATUSES.includes(existing.status)) return { ticket: existing, extra: { idempotent: true } };
+      if (ACTIVE_STATUSES.includes(existing.status)) return { ticket: existing, extra: { idempotent: true, patientUserId: Number(booking.patientId) } };
       if (existing.status === STATUS.CANCELLED) {
         assertTransition(EVENT.REVIVE, existing);
         await existing.update({ status: STATUS.WAITING, checkInAt: now, sortAt, priority, callCount: 0, calledAt: null }, { transaction: t });
         await logEvent(existing.id, EVENT.REVIVE, actor, { sortAt }, t);
-        return { ticket: existing };
+        return { ticket: existing, extra: { patientUserId: Number(booking.patientId) } };
       }
       throw new QueueError("TICKET_CLOSED", "Lượt khám của lịch hẹn này đã kết thúc", 409);
     }
@@ -225,7 +271,7 @@ const checkIn = async ({ bookingId, actor }) =>
         shift, source: "BOOKED", priority, checkInAt: now, sortAt },
       actor, EVENT.CHECK_IN, t
     );
-    return { ticket };
+    return { ticket, extra: { patientUserId: Number(booking.patientId) } };
   }, { event: EVENT.CHECK_IN });
 
 /**
@@ -643,13 +689,30 @@ const loadPlain = (where, extra = {}) =>
  * ETA cho tất cả vé đang hoạt động của một bác sĩ trong ngày.
  * Thời lượng từng ca: AI Service (gọi MỘT lần theo lô) -> trung bình lịch sử của bác sĩ -> mặc định. AI lỗi/tắt thì tự dùng dự phòng.
  */
-const etaForDoctor = async (doctorId, ticketDate) => {
+const computeEta = async (doctorId, ticketDate) => {
   const active = await db.QueueTicket.findAll({
     where: { doctorId, ticketDate, status: { [Op.in]: ACTIVE_STATUSES } }, raw: true,
   });
   const avg = await historyAvgMinutes(doctorId);
   const durations = await queueAi.predictDurations(active, { doctorId, avgMinutes: avg });
   return estimateForDoctor(active, avg, new Date(), { durations });
+};
+
+/**
+ * Gộp các lần tính ETA đồng thời của cùng một bác sĩ/ngày khi dữ liệu chưa đổi (cùng phiên bản): khi nhiều người check-in cùng lúc,
+ * thay vì mỗi yêu cầu tự đọc hàng đợi + gọi AI, chỉ một lần tính được chia sẻ. Không cache sau khi xong => không bao giờ trả số cũ.
+ */
+const etaForDoctor = (doctorId, ticketDate) => {
+  const key = etaKey(doctorId, ticketDate);
+  const ver = etaVersions.get(key) || 0;
+  const cur = etaInflight.get(key);
+  if (cur && cur.ver === ver) return cur.promise;
+  const promise = computeEta(doctorId, ticketDate).finally(() => {
+    const now = etaInflight.get(key);
+    if (now && now.promise === promise) etaInflight.delete(key);
+  });
+  etaInflight.set(key, { ver, promise });
+  return promise;
 };
 
 /** Chi tiết ETA nội bộ của một vé (kèm thời lượng đã dùng, phiên bản mô hình, baseline) – dùng để ghi ai_predictions. */
