@@ -1,2 +1,10 @@
 node_modules
 build
+uploads/*
+!uploads/.gitkeep
+.env
+.env.*
+!.env.example
+.git
+tests
+npm-debug.log
